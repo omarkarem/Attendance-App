@@ -24,16 +24,24 @@ app.use(cors({
 app.use(express.json());
 app.use(cookieParser());
 
-// Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/athletes', athleteRoutes);
-app.use('/api/sessions', sessionRoutes);
-app.use('/api/attendance', attendanceRoutes);
-app.use('/api/export', exportRoutes);
-app.use('/api/schedules', scheduleRoutes);
+// Routes (Mount at both /api and / to handle environment variable misconfigurations)
+const mountRoutes = (prefix) => {
+  app.use(`${prefix}/auth`, authRoutes);
+  app.use(`${prefix}/athletes`, athleteRoutes);
+  app.use(`${prefix}/sessions`, sessionRoutes);
+  app.use(`${prefix}/attendance`, attendanceRoutes);
+  app.use(`${prefix}/export`, exportRoutes);
+  app.use(`${prefix}/schedules`, scheduleRoutes);
+};
+
+mountRoutes('/api');
+mountRoutes(''); // Handles cases where the frontend forgot to append /api to the URL
 
 // Health check
 app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
