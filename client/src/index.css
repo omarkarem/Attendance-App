@@ -86,7 +86,7 @@
   }
 
   .nav-item-active {
-    @apply text-accent-400 bg-accent-500/10;
+    @apply text-accent-400;
   }
 
   .toggle-present {
@@ -100,7 +100,7 @@
   }
 
   .page-container {
-    @apply min-h-screen pb-24 md:pb-8 md:pl-72 px-4 md:pr-8 lg:pl-80 lg:pr-12 pt-6 max-w-[1600px] mx-auto;
+    @apply min-h-screen pb-[calc(env(safe-area-inset-bottom)+6rem)] md:pb-8 md:pl-72 px-4 md:pr-8 lg:pl-80 lg:pr-12 pt-[calc(env(safe-area-inset-top)+5rem)] md:pt-6 max-w-[1600px] mx-auto;
   }
 
   .page-title {

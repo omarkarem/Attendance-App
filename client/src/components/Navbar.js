@@ -74,7 +74,7 @@ const Navbar = () => {
       </aside>
 
       {/* Mobile Bottom Nav */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-dark-800/90 backdrop-blur-xl border-t border-dark-600/50 z-40 safe-area-bottom">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-dark-800/90 backdrop-blur-xl border-t border-dark-600/50 z-40 pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-1">
         <div className="flex items-center justify-around px-2 py-1">
           {navItems.map((item) => {
             const isActive = location.pathname === item.path;
@@ -93,7 +93,7 @@ const Navbar = () => {
       </nav>
 
       {/* Mobile Top Bar */}
-      <header className="md:hidden fixed top-0 left-0 right-0 bg-dark-800/90 backdrop-blur-xl border-b border-dark-600/50 z-40 px-4 py-3 flex items-center justify-between">
+      <header className="md:hidden fixed top-0 left-0 right-0 bg-dark-800/90 backdrop-blur-xl border-b border-dark-600/50 z-40 px-4 pb-3 pt-[max(env(safe-area-inset-top),1rem)] flex items-center justify-between">
         <h1 className="text-lg font-bold gradient-text">AttendTrack</h1>
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-full bg-gradient-to-br from-accent-400 to-neon-purple flex items-center justify-center text-white font-bold text-xs">
