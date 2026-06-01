@@ -100,7 +100,15 @@
   }
 
   .page-container {
-    @apply min-h-screen pb-[calc(env(safe-area-inset-bottom)+6rem)] md:pb-8 md:pl-72 px-4 md:pr-8 lg:pl-80 lg:pr-12 pt-[calc(env(safe-area-inset-top)+5rem)] md:pt-6 max-w-[1600px] mx-auto;
+    @apply min-h-screen md:pb-8 md:pl-72 px-4 md:pr-8 lg:pl-80 lg:pr-12 md:pt-6 max-w-[1600px] mx-auto;
+    padding-top: calc(env(safe-area-inset-top) + 5rem);
+    padding-bottom: calc(env(safe-area-inset-bottom) + 6rem);
+  }
+  @media (min-width: 768px) {
+    .page-container {
+      padding-top: 1.5rem;
+      padding-bottom: 2rem;
+    }
   }
 
   .page-title {

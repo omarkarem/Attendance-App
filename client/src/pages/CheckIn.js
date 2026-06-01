@@ -135,7 +135,7 @@ const CheckIn = () => {
 
   if (loading) {
     return (
-      <div className="page-container pt-20 md:pt-6">
+      <div className="page-container">
         <div className="flex items-center justify-center h-64">
           <div className="w-10 h-10 border-3 border-accent-400 border-t-transparent rounded-full animate-spin" />
         </div>
@@ -144,7 +144,7 @@ const CheckIn = () => {
   }
 
   return (
-    <div className="page-container pt-20 md:pt-6 pb-32">
+    <div className="page-container pb-32">
       {/* Header */}
       <div className="flex items-center gap-3 mb-4">
         <button

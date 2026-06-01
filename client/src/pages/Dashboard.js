@@ -38,7 +38,7 @@ const Dashboard = () => {
 
   if (loading) {
     return (
-      <div className="page-container pt-20 md:pt-6">
+      <div className="page-container">
         <div className="flex items-center justify-center h-64">
           <div className="w-10 h-10 border-3 border-accent-400 border-t-transparent rounded-full animate-spin" />
         </div>
@@ -59,7 +59,7 @@ const Dashboard = () => {
   };
 
   return (
-    <div className="page-container pt-20 md:pt-6">
+    <div className="page-container">
       {/* Page Header */}
       <div className="flex items-center justify-between mb-6">
         <div>

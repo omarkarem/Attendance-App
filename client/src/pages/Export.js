@@ -75,7 +75,7 @@ const Export = () => {
   }
 
   return (
-    <div className="page-container pt-20 md:pt-6">
+    <div className="page-container">
       <h1 className="page-title flex items-center gap-2">
         <HiOutlineArrowDownTray className="w-7 h-7 text-accent-400" />
         Export Attendance

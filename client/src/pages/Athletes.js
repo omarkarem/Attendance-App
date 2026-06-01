@@ -115,7 +115,7 @@ const Athletes = () => {
   );
 
   return (
-    <div className="page-container pt-20 md:pt-6">
+    <div className="page-container">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <h1 className="page-title">Athletes</h1>
