@@ -30,6 +30,7 @@ const AttendanceGrid = () => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [sessionFilter, setSessionFilter] = useState('all');
+  const [showAllAthletes, setShowAllAthletes] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -97,6 +98,21 @@ const AttendanceGrid = () => {
   };
 
   const gridData = !loading ? buildGrid() : null;
+
+  const visibleAthletes = data?.athletes?.filter(athlete => {
+    if (showAllAthletes || sessionFilter === 'all') return true;
+    
+    let expectedInAny = false;
+    if (gridData && gridData.sessions) {
+      gridData.sessions.forEach(s => {
+        const assigned = s.assignedAthletes || [];
+        if (assigned.length === 0 || assigned.includes(athlete._id)) {
+          expectedInAny = true;
+        }
+      });
+    }
+    return expectedInAny;
+  }) || [];
 
   return (
     <div className="page-container">
@@ -185,6 +201,22 @@ const AttendanceGrid = () => {
         </div>
       )}
 
+      {/* Athlete View Toggle */}
+      {sessionFilter !== 'all' && gridData && gridData.sessions.some(s => s.assignedAthletes?.length > 0) && (
+        <div className="flex justify-end mb-4 animate-fade-in">
+          <button
+            onClick={() => setShowAllAthletes(!showAllAthletes)}
+            className={`text-xs px-3 py-1.5 rounded-lg transition-all ${
+              showAllAthletes 
+                ? 'bg-dark-600 text-white' 
+                : 'bg-accent-500/20 text-accent-400 border border-accent-500/30'
+            }`}
+          >
+            {showAllAthletes ? 'Show Assigned Only' : 'Assigned Only'}
+          </button>
+        </div>
+      )}
+
       {/* Grid Table */}
       {loading ? (
         <div className="flex items-center justify-center h-32">
@@ -209,12 +241,24 @@ const AttendanceGrid = () => {
                 </tr>
               </thead>
               <tbody>
-                {data.athletes.map((athlete, idx) => {
+                {visibleAthletes.map((athlete, idx) => {
                   let total = 0;
                   let present = 0;
                   gridData.sessions.forEach(s => {
-                    total++;
-                    if (gridData.lookup[`${athlete._id}-${s._id}`]) present++;
+                    const isPresent = gridData.lookup[`${athlete._id}-${s._id}`];
+                    const assigned = s.assignedAthletes || [];
+                    const hasAssignments = assigned.length > 0;
+                    const isExpected = hasAssignments ? assigned.includes(athlete._id) : true;
+
+                    if ((isExpected && isPresent !== undefined) || isPresent === true) {
+                      // Ignore old "false" records if the athlete is not expected
+                      if (isExpected || isPresent) {
+                        // Wait, the condition above already ensures either (isExpected and isPresent !== undefined) OR isPresent === true.
+                        // So if they are NOT expected and isPresent is false, it won't enter here!
+                        total++;
+                        if (isPresent) present++;
+                      }
+                    }
                   });
                   const pct = total > 0 ? Math.round((present / total) * 100) : 0;
 
@@ -230,6 +274,17 @@ const AttendanceGrid = () => {
                       </td>
                       {gridData.sessions.map(s => {
                         const isPresent = gridData.lookup[`${athlete._id}-${s._id}`];
+                        const assigned = s.assignedAthletes || [];
+                        const hasAssignments = assigned.length > 0;
+                        const isExpected = hasAssignments ? assigned.includes(athlete._id) : true;
+
+                        if (isPresent === undefined || (!isExpected && !isPresent)) {
+                          return (
+                            <td key={s._id} className="px-2 py-3 text-center text-dark-500">
+                              -
+                            </td>
+                          );
+                        }
                         return (
                           <td key={s._id} className={`px-2 py-3 text-center ${isPresent ? 'grid-cell-present' : 'grid-cell-absent'}`}>
                             {isPresent ? (

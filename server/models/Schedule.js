@@ -27,6 +27,10 @@ const scheduleSchema = new mongoose.Schema({
     type: String, // HH:MM format optional
     trim: true
   },
+  assignedAthletes: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Athlete'
+  }],
   active: {
     type: Boolean,
     default: true

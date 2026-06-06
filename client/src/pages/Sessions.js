@@ -43,6 +43,15 @@ const Sessions = () => {
   
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+
+  // Athletes Assignment State
+  const [athletes, setAthletes] = useState([]);
+  const [showAssignModal, setShowAssignModal] = useState(false);
+  const [selectedEntity, setSelectedEntity] = useState(null);
+  const [entityType, setEntityType] = useState('session');
+  const [assignedAthletes, setAssignedAthletes] = useState([]);
+  const [savingAthletes, setSavingAthletes] = useState(false);
+
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -76,6 +85,15 @@ const Sessions = () => {
       toast.error('Failed to load schedules');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchAthletes = async () => {
+    try {
+      const { data } = await api.get('/athletes');
+      setAthletes(data);
+    } catch (error) {
+      toast.error('Failed to load athletes');
     }
   };
 
@@ -142,6 +160,46 @@ const Sessions = () => {
       setSchedules(schedules.filter(s => s._id !== id));
     } catch (error) {
       toast.error('Failed to delete schedule');
+    }
+  };
+
+  const openAssignModal = (entity, type) => {
+    setSelectedEntity(entity);
+    setEntityType(type);
+    setAssignedAthletes(entity.assignedAthletes || []);
+    setShowAssignModal(true);
+    if (athletes.length === 0) fetchAthletes();
+  };
+
+  const saveAssignedAthletes = async (e) => {
+    e.preventDefault();
+    setSavingAthletes(true);
+    try {
+      const endpoint = entityType === 'session' ? `/sessions/${selectedEntity._id}` : `/schedules/${selectedEntity._id}`;
+      const { data } = await api.put(endpoint, {
+        assignedAthletes
+      });
+      
+      if (entityType === 'session') {
+        setSessions(sessions.map(s => s._id === data._id ? { ...s, assignedAthletes: data.assignedAthletes } : s));
+      } else {
+        setSchedules(schedules.map(s => s._id === data._id ? { ...s, assignedAthletes: data.assignedAthletes } : s));
+      }
+      
+      setShowAssignModal(false);
+      toast.success('Athletes assigned successfully');
+    } catch (error) {
+      toast.error('Failed to save assigned athletes');
+    } finally {
+      setSavingAthletes(false);
+    }
+  };
+
+  const toggleAssignedAthlete = (athleteId) => {
+    if (assignedAthletes.includes(athleteId)) {
+      setAssignedAthletes(assignedAthletes.filter(id => id !== athleteId));
+    } else {
+      setAssignedAthletes([...assignedAthletes, athleteId]);
     }
   };
 
@@ -249,6 +307,9 @@ const Sessions = () => {
                       </div>
                     </div>
                     <div className="flex items-center gap-2 ml-3">
+                      <button onClick={() => openAssignModal(session, 'session')} className="btn-secondary !px-3 !py-2 text-sm flex items-center gap-1.5" title="Manage Athletes">
+                        <HiOutlineUserGroup className="w-4 h-4" />
+                      </button>
                       <button onClick={() => navigate(`/checkin/${session._id}`)} className="btn-primary !px-4 !py-2 text-sm flex items-center gap-1.5">
                         <HiOutlineClipboardDocumentCheck className="w-4 h-4" />
                         <span className="hidden sm:inline">Check In</span>
@@ -297,9 +358,14 @@ const Sessions = () => {
                         Auto-generates at {schedule.time || '12:00'}
                       </p>
                     </div>
-                    <button onClick={() => deleteSchedule(schedule._id)} className="w-8 h-8 flex items-center justify-center rounded-lg text-dark-400 hover:text-red-400 hover:bg-red-500/10 transition-all">
-                      <HiOutlineTrash className="w-4 h-4" />
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => openAssignModal(schedule, 'schedule')} className="w-8 h-8 flex items-center justify-center rounded-lg text-dark-400 hover:text-accent-400 hover:bg-accent-500/10 transition-all" title="Manage Athletes">
+                        <HiOutlineUserGroup className="w-4 h-4" />
+                      </button>
+                      <button onClick={() => deleteSchedule(schedule._id)} className="w-8 h-8 flex items-center justify-center rounded-lg text-dark-400 hover:text-red-400 hover:bg-red-500/10 transition-all">
+                        <HiOutlineTrash className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {DAYS_OF_WEEK.map(day => (
@@ -389,6 +455,56 @@ const Sessions = () => {
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={() => setShowScheduleModal(false)} className="btn-secondary flex-1">Cancel</button>
             <button type="submit" disabled={creating} className="btn-primary flex-1">{creating ? 'Saving...' : 'Save Template'}</button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Assign Athletes Modal */}
+      <Modal isOpen={showAssignModal} onClose={() => setShowAssignModal(false)} title={`Assign Athletes to ${selectedEntity?.name || ''}`}>
+        <form onSubmit={saveAssignedAthletes} className="space-y-4">
+          <p className="text-xs text-dark-400">
+            {entityType === 'schedule' 
+              ? 'Athletes assigned here will be automatically expected for any future sessions generated from this template.'
+              : 'Select which athletes are expected to attend this specific session.'}
+          </p>
+          
+          <div className="max-h-64 overflow-y-auto pr-2 space-y-2">
+            {athletes.length === 0 ? (
+              <p className="text-sm text-dark-400 text-center py-4">No active athletes found.</p>
+            ) : (
+              athletes.map(athlete => (
+                <label key={athlete._id} className="flex items-center justify-between p-3 rounded-lg border border-dark-600 bg-dark-700/50 cursor-pointer hover:bg-dark-600 transition-all">
+                  <span className="text-sm font-medium text-white">{athlete.name}</span>
+                  <div className={`w-5 h-5 rounded border flex items-center justify-center transition-all ${
+                    assignedAthletes.includes(athlete._id) ? 'bg-accent-500 border-accent-500' : 'border-dark-400'
+                  }`}>
+                    {assignedAthletes.includes(athlete._id) && (
+                      <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                      </svg>
+                    )}
+                  </div>
+                  <input
+                    type="checkbox"
+                    className="hidden"
+                    checked={assignedAthletes.includes(athlete._id)}
+                    onChange={() => toggleAssignedAthlete(athlete._id)}
+                  />
+                </label>
+              ))
+            )}
+          </div>
+
+          <div className="flex items-center justify-between pt-2">
+            <span className="text-sm text-dark-400">
+              <span className="text-white font-medium">{assignedAthletes.length}</span> selected
+            </span>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setShowAssignModal(false)} className="btn-secondary">Cancel</button>
+              <button type="submit" disabled={savingAthletes} className="btn-primary">
+                {savingAthletes ? 'Saving...' : 'Save'}
+              </button>
+            </div>
           </div>
         </form>
       </Modal>

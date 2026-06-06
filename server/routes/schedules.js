@@ -20,7 +20,7 @@ router.get('/', async (req, res) => {
 // POST /api/schedules - Create a schedule
 router.post('/', async (req, res) => {
   try {
-    const { name, daysOfWeek, time } = req.body;
+    const { name, daysOfWeek, time, assignedAthletes } = req.body;
 
     if (!name || !daysOfWeek || daysOfWeek.length === 0) {
       return res.status(400).json({ message: 'Name and at least one day of the week are required.' });
@@ -30,7 +30,8 @@ router.post('/', async (req, res) => {
       name: name.trim(),
       coach: req.user._id,
       daysOfWeek,
-      time: time || null
+      time: time || null,
+      assignedAthletes: assignedAthletes || []
     });
 
     res.status(201).json(schedule);
@@ -42,12 +43,13 @@ router.post('/', async (req, res) => {
 // PUT /api/schedules/:id - Update schedule active status
 router.put('/:id', async (req, res) => {
   try {
-    const { active } = req.body;
+    const { active, assignedAthletes } = req.body;
     
     const schedule = await Schedule.findOne({ _id: req.params.id, coach: req.user._id });
     if (!schedule) return res.status(404).json({ message: 'Schedule not found' });
     
     if (active !== undefined) schedule.active = active;
+    if (assignedAthletes !== undefined) schedule.assignedAthletes = assignedAthletes;
     
     await schedule.save();
     res.json(schedule);

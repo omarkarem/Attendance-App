@@ -64,24 +64,36 @@ const generateExcel = async (data) => {
   const attendanceLookup = {};
   attendance.forEach(a => {
     const key = `${a.athlete?._id || a.athlete}-${a.session}`;
-    attendanceLookup[key] = a.present;
+    attendanceLookup[key] = { present: a.present };
   });
 
   // Add athlete rows
   athletes.forEach((athlete, index) => {
     const rowData = { athlete: athlete.name };
     let presentCount = 0;
+    let expectedCount = 0;
 
-    sessionKeys.forEach(sessionId => {
+    sessions.forEach(s => {
+      const sessionId = s._id.toString();
       const key = `${athlete._id}-${sessionId}`;
-      const isPresent = attendanceLookup[key] || false;
-      rowData[sessionId] = isPresent ? '✓' : '✗';
-      if (isPresent) presentCount++;
+      const record = attendanceLookup[key];
+      
+      const assigned = s.assignedAthletes || [];
+      const hasAssignments = assigned.length > 0;
+      const isExpected = hasAssignments ? assigned.some(id => id.toString() === athlete._id.toString()) : true;
+
+      if ((isExpected && record !== undefined) || (record && record.present === true)) {
+        expectedCount++;
+        rowData[sessionId] = record.present ? '✓' : '✗';
+        if (record.present) presentCount++;
+      } else {
+        rowData[sessionId] = '-';
+      }
     });
 
     rowData.total = presentCount;
-    rowData.percentage = sessionKeys.length > 0
-      ? `${Math.round((presentCount / sessionKeys.length) * 100)}%`
+    rowData.percentage = expectedCount > 0
+      ? `${Math.round((presentCount / expectedCount) * 100)}%`
       : '0%';
 
     const row = sheet.addRow(rowData);
@@ -96,13 +108,20 @@ const generateExcel = async (data) => {
     }
 
     // Color-code attendance cells
-    sessionKeys.forEach((sessionId, colIndex) => {
+    sessions.forEach((s, colIndex) => {
+      const sessionId = s._id.toString();
       const cell = row.getCell(colIndex + 2); // +2 because athlete name is col 1
       const key = `${athlete._id}-${sessionId}`;
-      const isPresent = attendanceLookup[key] || false;
+      const record = attendanceLookup[key];
+
+      const assigned = s.assignedAthletes || [];
+      const hasAssignments = assigned.length > 0;
+      const isExpected = hasAssignments ? assigned.some(id => id.toString() === athlete._id.toString()) : true;
 
       cell.alignment = { horizontal: 'center' };
-      if (isPresent) {
+      if (record === undefined || (!isExpected && record && !record.present)) {
+        cell.font = { color: { argb: 'FF6B7280' } }; // Gray
+      } else if (record && record.present) {
         cell.font = { color: { argb: 'FF16a34a' }, bold: true };
       } else {
         cell.font = { color: { argb: 'FFdc2626' } };

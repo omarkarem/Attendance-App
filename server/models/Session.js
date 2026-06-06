@@ -22,7 +22,11 @@ const sessionSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Schedule',
     default: null
-  }
+  },
+  assignedAthletes: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Athlete'
+  }]
 }, {
   timestamps: true
 });

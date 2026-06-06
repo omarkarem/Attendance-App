@@ -49,7 +49,8 @@ router.get('/', async (req, res) => {
             name: schedule.name,
             coach: req.user._id,
             date: sessionDate,
-            scheduleId: schedule._id
+            scheduleId: schedule._id,
+            assignedAthletes: schedule.assignedAthletes || []
           });
         }
       }
@@ -89,7 +90,7 @@ router.get('/', async (req, res) => {
 // POST /api/sessions - Create a new session
 router.post('/', async (req, res) => {
   try {
-    const { name, date } = req.body;
+    const { name, date, assignedAthletes } = req.body;
 
     if (!name) {
       return res.status(400).json({ message: 'Session name is required.' });
@@ -98,7 +99,8 @@ router.post('/', async (req, res) => {
     const session = await Session.create({
       name: name.trim(),
       coach: req.user._id,
-      date: date ? new Date(date) : new Date()
+      date: date ? new Date(date) : new Date(),
+      assignedAthletes: assignedAthletes || []
     });
 
     res.status(201).json(session);
@@ -122,6 +124,23 @@ router.get('/:id', async (req, res) => {
     res.json(session);
   } catch (error) {
     res.status(500).json({ message: error.message || 'Error fetching session.' });
+  }
+});
+
+// PUT /api/sessions/:id - Update session
+router.put('/:id', async (req, res) => {
+  try {
+    const { assignedAthletes } = req.body;
+    
+    const session = await Session.findOne({ _id: req.params.id, coach: req.user._id });
+    if (!session) return res.status(404).json({ message: 'Session not found' });
+    
+    if (assignedAthletes !== undefined) session.assignedAthletes = assignedAthletes;
+    
+    await session.save();
+    res.json(session);
+  } catch (error) {
+    res.status(500).json({ message: error.message || 'Error updating session.' });
   }
 });
 

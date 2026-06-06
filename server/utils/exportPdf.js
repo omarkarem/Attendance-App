@@ -37,7 +37,7 @@ const generatePdf = (data) => {
   const attendanceLookup = {};
   attendance.forEach(a => {
     const key = `${a.athlete?._id || a.athlete}-${a.session}`;
-    attendanceLookup[key] = a.present;
+    attendanceLookup[key] = { present: a.present };
   });
 
   // Table
@@ -93,18 +93,29 @@ const generatePdf = (data) => {
 
     x += nameColWidth;
     let presentCount = 0;
+    let expectedCount = 0;
 
     sessions.forEach(s => {
       const key = `${athlete._id}-${s._id}`;
-      const isPresent = attendanceLookup[key] || false;
+      const record = attendanceLookup[key];
 
-      if (isPresent) {
-        presentCount++;
-        doc.font('Helvetica-Bold').fillColor('#16a34a');
-        doc.text('✓', x + 2, y + 5, { width: cellWidth - 4, align: 'center' });
+      const assigned = s.assignedAthletes || [];
+      const hasAssignments = assigned.length > 0;
+      const isExpected = hasAssignments ? assigned.some(id => id.toString() === athlete._id.toString()) : true;
+
+      if ((isExpected && record !== undefined) || (record && record.present === true)) {
+        expectedCount++;
+        if (record.present) {
+          presentCount++;
+          doc.font('Helvetica-Bold').fillColor('#16a34a');
+          doc.text('✓', x + 2, y + 5, { width: cellWidth - 4, align: 'center' });
+        } else {
+          doc.font('Helvetica').fillColor('#dc2626');
+          doc.text('✗', x + 2, y + 5, { width: cellWidth - 4, align: 'center' });
+        }
       } else {
-        doc.font('Helvetica').fillColor('#dc2626');
-        doc.text('✗', x + 2, y + 5, { width: cellWidth - 4, align: 'center' });
+        doc.font('Helvetica').fillColor('#94a3b8');
+        doc.text('-', x + 2, y + 5, { width: cellWidth - 4, align: 'center' });
       }
       x += cellWidth;
     });
@@ -113,7 +124,7 @@ const generatePdf = (data) => {
     doc.text(presentCount.toString(), x + 2, y + 5, { width: totalColWidth - 4, align: 'center' });
     x += totalColWidth;
 
-    const pct = sessions.length > 0 ? Math.round((presentCount / sessions.length) * 100) : 0;
+    const pct = expectedCount > 0 ? Math.round((presentCount / expectedCount) * 100) : 0;
     doc.text(`${pct}%`, x + 2, y + 5, { width: pctColWidth - 4, align: 'center' });
 
     y += rowHeight;

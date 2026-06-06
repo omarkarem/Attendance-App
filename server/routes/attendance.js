@@ -47,7 +47,18 @@ router.post('/bulk', async (req, res) => {
       }
     }));
 
-    await Attendance.bulkWrite(operations);
+    // Find all athletes NOT in the records list for this session, and delete their attendance
+    const recordAthleteIds = records.map(r => r.athleteId);
+    
+    await Attendance.deleteMany({
+      session: sessionId,
+      coach: req.user._id,
+      athlete: { $nin: recordAthleteIds }
+    });
+
+    if (operations.length > 0) {
+      await Attendance.bulkWrite(operations);
+    }
 
     res.json({ message: 'Attendance saved successfully.', count: records.length });
   } catch (error) {

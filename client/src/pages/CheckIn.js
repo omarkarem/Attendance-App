@@ -21,6 +21,15 @@ const CheckIn = () => {
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
   const [hasChanges, setHasChanges] = useState(false);
+  const [showAll, setShowAll] = useState(false);
+
+  useEffect(() => {
+    if (session?.assignedAthletes?.length > 0) {
+      setShowAll(false);
+    } else {
+      setShowAll(true);
+    }
+  }, [session]);
 
   useEffect(() => {
     fetchData();
@@ -65,8 +74,8 @@ const CheckIn = () => {
   };
 
   const markAllPresent = () => {
-    const newAtt = {};
-    athletes.forEach(a => {
+    const newAtt = { ...attendance };
+    filteredAthletes.forEach(a => {
       newAtt[a._id] = true;
     });
     setAttendance(newAtt);
@@ -74,8 +83,8 @@ const CheckIn = () => {
   };
 
   const markAllAbsent = () => {
-    const newAtt = {};
-    athletes.forEach(a => {
+    const newAtt = { ...attendance };
+    filteredAthletes.forEach(a => {
       newAtt[a._id] = false;
     });
     setAttendance(newAtt);
@@ -85,10 +94,18 @@ const CheckIn = () => {
   const saveAttendance = async () => {
     setSaving(true);
     try {
-      const records = Object.entries(attendance).map(([athleteId, present]) => ({
-        athleteId,
-        present
-      }));
+      const records = Object.entries(attendance)
+        .filter(([athleteId, present]) => {
+          if (present) return true;
+          if (session?.assignedAthletes?.length > 0) {
+            return session.assignedAthletes.includes(athleteId);
+          }
+          return true;
+        })
+        .map(([athleteId, present]) => ({
+          athleteId,
+          present
+        }));
 
       await api.post('/attendance/bulk', {
         sessionId,
@@ -104,7 +121,15 @@ const CheckIn = () => {
     }
   };
 
-  const filteredAthletes = athletes.filter(a =>
+  const visibleAthletes = athletes.filter(a => {
+    if (showAll) return true;
+    if (session?.assignedAthletes?.length > 0) {
+      return session.assignedAthletes.includes(a._id);
+    }
+    return true;
+  });
+
+  const filteredAthletes = visibleAthletes.filter(a =>
     a.name.toLowerCase().includes(search.toLowerCase())
   );
 
@@ -176,6 +201,18 @@ const CheckIn = () => {
           </span>
         </div>
         <div className="flex gap-2">
+          {session?.assignedAthletes?.length > 0 && (
+            <button
+              onClick={() => setShowAll(!showAll)}
+              className={`text-xs px-3 py-1.5 rounded-lg transition-all ${
+                showAll 
+                  ? 'bg-dark-600 text-white' 
+                  : 'bg-accent-500/20 text-accent-400 border border-accent-500/30'
+              }`}
+            >
+              {showAll ? 'Show Assigned Only' : 'Assigned Only'}
+            </button>
+          )}
           <button
             onClick={markAllPresent}
             className="text-xs px-3 py-1.5 rounded-lg bg-accent-500/10 text-accent-400 hover:bg-accent-500/20 transition-all"
