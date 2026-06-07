@@ -256,10 +256,10 @@ const Tests = () => {
   const calculatedPace = formatPace(currentDistanceMeters, currentTimeSeconds, selectedTestType?.category);
 
   return (
-    <div className="p-4 md:p-8 max-w-7xl mx-auto md:ml-64 w-full md:w-[calc(100%-16rem)] min-h-screen pt-20 md:pt-8 transition-all">
+    <div className="page-container">
       <div className="flex flex-col md:flex-row md:items-end justify-between mb-8 gap-4">
         <div>
-          <h1 className="text-3xl md:text-4xl font-bold text-white mb-2 tracking-tight">Performance Tests</h1>
+          <h1 className="page-title !mb-2">Performance Tests</h1>
           <p className="text-dark-400">Manage and track athlete test results.</p>
         </div>
       </div>
@@ -289,7 +289,7 @@ const Tests = () => {
       {activeTab === 'manage' ? (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Create Test Type Form */}
-          <div className="lg:col-span-1 glass-panel p-6 self-start">
+          <div className="lg:col-span-1 glass-card p-6 self-start">
             <h2 className="text-xl font-bold text-white mb-4">{editingTypeId ? 'Edit Test Type' : 'Add Test Type'}</h2>
             <form onSubmit={handleCreateTestType} className="space-y-4">
               <div>
@@ -361,7 +361,7 @@ const Tests = () => {
                       min="0"
                       value={typeForm.targetTimeH}
                       onChange={e => setTypeForm({ ...typeForm, targetTimeH: e.target.value })}
-                      className="w-full bg-dark-800 border border-dark-600 rounded-xl px-2 py-3 text-white text-center focus:outline-none focus:border-accent-500"
+                      className="w-full min-w-0 bg-dark-800 border border-dark-600 rounded-xl px-2 py-3 text-white text-center focus:outline-none focus:border-accent-500"
                       placeholder="hh"
                     />
                     <span className="text-dark-400">:</span>
@@ -371,7 +371,7 @@ const Tests = () => {
                       max="59"
                       value={typeForm.targetTimeM}
                       onChange={e => setTypeForm({ ...typeForm, targetTimeM: e.target.value })}
-                      className="w-full bg-dark-800 border border-dark-600 rounded-xl px-2 py-3 text-white text-center focus:outline-none focus:border-accent-500"
+                      className="w-full min-w-0 bg-dark-800 border border-dark-600 rounded-xl px-2 py-3 text-white text-center focus:outline-none focus:border-accent-500"
                       placeholder="mm"
                     />
                     <span className="text-dark-400">:</span>
@@ -381,7 +381,7 @@ const Tests = () => {
                       max="59"
                       value={typeForm.targetTimeS}
                       onChange={e => setTypeForm({ ...typeForm, targetTimeS: e.target.value })}
-                      className="w-full bg-dark-800 border border-dark-600 rounded-xl px-2 py-3 text-white text-center focus:outline-none focus:border-accent-500"
+                      className="w-full min-w-0 bg-dark-800 border border-dark-600 rounded-xl px-2 py-3 text-white text-center focus:outline-none focus:border-accent-500"
                       placeholder="ss"
                     />
                   </div>
@@ -409,7 +409,7 @@ const Tests = () => {
           </div>
 
           {/* List Test Types */}
-          <div className="lg:col-span-2 glass-panel p-6">
+          <div className="lg:col-span-2 glass-card p-6">
             <h2 className="text-xl font-bold text-white mb-4">Existing Test Types</h2>
             <div className="space-y-3">
               {testTypes.length === 0 ? (
@@ -444,7 +444,7 @@ const Tests = () => {
       ) : (
         <div className="max-w-2xl mx-auto">
           {/* Record Result Form */}
-          <div className="glass-panel p-6">
+          <div className="glass-card p-6">
             <h2 className="text-xl font-bold text-white mb-4">Record Result</h2>
             <form onSubmit={handleRecordResult} className="space-y-4">
               <div>
@@ -530,7 +530,7 @@ const Tests = () => {
                       min="0"
                       value={resultForm.timeH}
                       onChange={e => setResultForm({ ...resultForm, timeH: e.target.value })}
-                      className="w-full bg-dark-800 border border-dark-600 rounded-xl px-2 py-3 text-white text-center focus:outline-none focus:border-accent-500"
+                      className="w-full min-w-0 bg-dark-800 border border-dark-600 rounded-xl px-2 py-3 text-white text-center focus:outline-none focus:border-accent-500"
                       placeholder="hh"
                     />
                     <span className="text-dark-400">:</span>
@@ -540,7 +540,7 @@ const Tests = () => {
                       max="59"
                       value={resultForm.timeM}
                       onChange={e => setResultForm({ ...resultForm, timeM: e.target.value })}
-                      className="w-full bg-dark-800 border border-dark-600 rounded-xl px-2 py-3 text-white text-center focus:outline-none focus:border-accent-500"
+                      className="w-full min-w-0 bg-dark-800 border border-dark-600 rounded-xl px-2 py-3 text-white text-center focus:outline-none focus:border-accent-500"
                       placeholder="mm"
                     />
                     <span className="text-dark-400">:</span>
@@ -550,7 +550,7 @@ const Tests = () => {
                       max="59"
                       value={resultForm.timeS}
                       onChange={e => setResultForm({ ...resultForm, timeS: e.target.value })}
-                      className="w-full bg-dark-800 border border-dark-600 rounded-xl px-2 py-3 text-white text-center focus:outline-none focus:border-accent-500"
+                      className="w-full min-w-0 bg-dark-800 border border-dark-600 rounded-xl px-2 py-3 text-white text-center focus:outline-none focus:border-accent-500"
                       placeholder="ss"
                     />
                   </div>
