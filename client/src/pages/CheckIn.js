@@ -303,7 +303,7 @@ const CheckIn = () => {
 
       {/* Floating Save Button */}
       {hasChanges && (
-        <div className="fixed bottom-20 md:bottom-8 left-0 right-0 md:left-64 flex justify-center px-4 z-30 animate-slide-up">
+        <div className="fixed bottom-28 md:bottom-8 left-0 right-0 md:left-64 flex justify-center px-4 z-30 animate-slide-up">
           <button
             onClick={saveAttendance}
             disabled={saving}
