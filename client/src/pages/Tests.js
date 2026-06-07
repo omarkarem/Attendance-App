@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { HiOutlinePlus, HiOutlineTrash, HiOutlineChartBar, HiOutlineCog, HiOutlinePencil } from 'react-icons/hi2';
 import toast from 'react-hot-toast';
 import useAuth from '../hooks/useAuth';
+import api from '../utils/api';
 
 const formatTime = (totalSeconds) => {
   const h = Math.floor(totalSeconds / 3600);
@@ -71,17 +72,13 @@ const Tests = () => {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const headers = { 'Authorization': `Bearer ${localStorage.getItem('token')}` };
-      
-      const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
-
       const [athletesRes, typesRes] = await Promise.all([
-        fetch(`${API_URL}/athletes`, { headers }),
-        fetch(`${API_URL}/tests/types`, { headers })
+        api.get('/athletes'),
+        api.get('/tests/types')
       ]);
 
-      if (athletesRes.ok) setAthletes(await athletesRes.json());
-      if (typesRes.ok) setTestTypes(await typesRes.json());
+      setAthletes(athletesRes.data);
+      setTestTypes(typesRes.data);
     } catch (error) {
       toast.error('Failed to load data');
       console.error(error);
@@ -153,38 +150,25 @@ const Tests = () => {
         payload.targetTime = (parseInt(typeForm.targetTimeH) || 0) * 3600 + (parseInt(typeForm.targetTimeM) || 0) * 60 + (parseInt(typeForm.targetTimeS) || 0);
       }
 
-      const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
-      const method = editingTypeId ? 'PUT' : 'POST';
-      const url = editingTypeId ? `${API_URL}/tests/types/${editingTypeId}` : `${API_URL}/tests/types`;
-
-      const res = await fetch(url, {
-        method,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify(payload)
-      });
-      
-      if (res.ok) {
-        const updatedType = await res.json();
-        if (editingTypeId) {
-          setTestTypes(testTypes.map(t => t._id === editingTypeId ? updatedType : t));
-          toast.success('Test type updated');
-          setEditingTypeId(null);
-        } else {
-          setTestTypes([...testTypes, updatedType]);
-          toast.success('Test type created');
-        }
-        setTypeForm({ 
-          title: '', category: 'Running', measureType: 'Distance',
-          targetDistanceValue: '', targetDistanceUnit: 'm',
-          targetTimeH: '0', targetTimeM: '0', targetTimeS: '0'
-        });
+      let updatedType;
+      if (editingTypeId) {
+        const { data } = await api.put(`/tests/types/${editingTypeId}`, payload);
+        updatedType = data;
+        setTestTypes(testTypes.map(t => t._id === editingTypeId ? updatedType : t));
+        toast.success('Test type updated');
+        setEditingTypeId(null);
       } else {
-        const data = await res.json();
-        toast.error(data.message || 'Error saving test type');
+        const { data } = await api.post('/tests/types', payload);
+        updatedType = data;
+        setTestTypes([...testTypes, updatedType]);
+        toast.success('Test type created');
       }
+      
+      setTypeForm({ 
+        title: '', category: 'Running', measureType: 'Distance',
+        targetDistanceValue: '', targetDistanceUnit: 'm',
+        targetTimeH: '0', targetTimeM: '0', targetTimeS: '0'
+      });
     } catch (error) {
       toast.error('Network error');
     }
@@ -193,17 +177,9 @@ const Tests = () => {
   const handleDeleteTestType = async (id) => {
     if (!window.confirm('Delete this test type?')) return;
     try {
-      const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
-      const res = await fetch(`${API_URL}/tests/types/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-      });
-      if (res.ok) {
-        setTestTypes(testTypes.filter(t => t._id !== id));
-        toast.success('Test type deleted');
-      } else {
-        toast.error('Error deleting test type');
-      }
+      await api.delete(`/tests/types/${id}`);
+      setTestTypes(testTypes.filter(t => t._id !== id));
+      toast.success('Test type deleted');
     } catch (error) {
       toast.error('Network error');
     }
@@ -238,7 +214,6 @@ const Tests = () => {
     }
 
     try {
-      const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
       const payload = {
         athleteId: resultForm.athleteId,
         testTypeId: resultForm.testTypeId,
@@ -248,29 +223,17 @@ const Tests = () => {
         description: resultForm.description
       };
 
-      const res = await fetch(`${API_URL}/tests/results`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify(payload)
-      });
+      await api.post('/tests/results', payload);
       
-      if (res.ok) {
-        setResultForm({
-          ...resultForm,
-          distanceValue: '',
-          timeH: '0',
-          timeM: '0',
-          timeS: '0',
-          description: ''
-        });
-        toast.success('Result recorded');
-      } else {
-        const data = await res.json();
-        toast.error(data.message || 'Error recording result');
-      }
+      setResultForm({
+        ...resultForm,
+        distanceValue: '',
+        timeH: '0',
+        timeM: '0',
+        timeS: '0',
+        description: ''
+      });
+      toast.success('Result recorded');
     } catch (error) {
       toast.error('Network error');
     }
