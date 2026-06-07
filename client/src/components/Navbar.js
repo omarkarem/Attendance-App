@@ -6,7 +6,9 @@ import {
   HiOutlineUserGroup,
   HiOutlineTableCells,
   HiOutlineArrowDownTray,
-  HiOutlineArrowRightOnRectangle
+  HiOutlineArrowRightOnRectangle,
+  HiOutlineChartBar,
+  HiOutlineClipboardDocumentList
 } from 'react-icons/hi2';
 import useAuth from '../hooks/useAuth';
 
@@ -14,6 +16,8 @@ const navItems = [
   { path: '/', icon: HiOutlineHome, label: 'Home' },
   { path: '/sessions', icon: HiOutlineCalendar, label: 'Sessions' },
   { path: '/athletes', icon: HiOutlineUserGroup, label: 'Athletes' },
+  { path: '/tests', icon: HiOutlineChartBar, label: 'Tests' },
+  { path: '/test-results', icon: HiOutlineClipboardDocumentList, label: 'History' },
   { path: '/attendance', icon: HiOutlineTableCells, label: 'Grid' },
   { path: '/export', icon: HiOutlineArrowDownTray, label: 'Export' },
 ];

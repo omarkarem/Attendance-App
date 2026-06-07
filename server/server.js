@@ -10,6 +10,7 @@ const sessionRoutes = require('./routes/sessions');
 const attendanceRoutes = require('./routes/attendance');
 const exportRoutes = require('./routes/export');
 const scheduleRoutes = require('./routes/schedules');
+const testRoutes = require('./routes/tests');
 
 const app = express();
 
@@ -32,6 +33,7 @@ const mountRoutes = (prefix) => {
   app.use(`${prefix}/attendance`, attendanceRoutes);
   app.use(`${prefix}/export`, exportRoutes);
   app.use(`${prefix}/schedules`, scheduleRoutes);
+  app.use(`${prefix}/tests`, testRoutes);
 };
 
 mountRoutes('/api');

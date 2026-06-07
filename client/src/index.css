@@ -120,13 +120,13 @@
   }
 
   .modal-overlay {
-    @apply fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end md:items-center justify-center
-           animate-fade-in;
+    @apply fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center
+           animate-fade-in p-4;
   }
 
   .modal-content {
-    @apply glass-card p-6 w-full max-w-md animate-slide-up md:mx-4
-           rounded-t-3xl md:rounded-2xl max-h-[85vh] overflow-y-auto;
+    @apply glass-card p-6 w-full max-w-md animate-slide-up mx-auto
+           rounded-2xl max-h-[85vh] overflow-y-auto;
   }
 
   .grid-cell-present {
