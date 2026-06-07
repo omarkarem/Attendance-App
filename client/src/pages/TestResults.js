@@ -155,15 +155,15 @@ const TestResults = () => {
   });
 
   return (
-    <div className="p-4 md:p-8 max-w-7xl mx-auto md:ml-64 w-full md:w-[calc(100%-16rem)] min-h-screen pt-20 md:pt-8 transition-all">
+    <div className="page-container">
       <div className="flex flex-col md:flex-row md:items-end justify-between mb-8 gap-4">
         <div>
-          <h1 className="text-3xl md:text-4xl font-bold text-white mb-2 tracking-tight">Test Results</h1>
+          <h1 className="page-title !mb-2">Test Results</h1>
           <p className="text-dark-400">View performance history of your athletes.</p>
         </div>
       </div>
 
-      <div className="glass-panel p-6 overflow-x-auto">
+      <div className="glass-card p-6 overflow-x-auto">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div className="flex items-center gap-2">
             <HiOutlineClipboardDocumentList className="w-6 h-6 text-accent-400" />
@@ -326,7 +326,7 @@ const TestResults = () => {
                 min="0"
                 value={editForm.timeH}
                 onChange={e => setEditForm({ ...editForm, timeH: e.target.value })}
-                className="w-full bg-dark-800 border border-dark-600 rounded-xl px-2 py-3 text-white text-center focus:outline-none focus:border-accent-500"
+                className="w-full min-w-0 bg-dark-800 border border-dark-600 rounded-xl px-2 py-3 text-white text-center focus:outline-none focus:border-accent-500"
                 placeholder="hh"
               />
               <span className="text-dark-400">:</span>
@@ -336,7 +336,7 @@ const TestResults = () => {
                 max="59"
                 value={editForm.timeM}
                 onChange={e => setEditForm({ ...editForm, timeM: e.target.value })}
-                className="w-full bg-dark-800 border border-dark-600 rounded-xl px-2 py-3 text-white text-center focus:outline-none focus:border-accent-500"
+                className="w-full min-w-0 bg-dark-800 border border-dark-600 rounded-xl px-2 py-3 text-white text-center focus:outline-none focus:border-accent-500"
                 placeholder="mm"
               />
               <span className="text-dark-400">:</span>
@@ -346,7 +346,7 @@ const TestResults = () => {
                 max="59"
                 value={editForm.timeS}
                 onChange={e => setEditForm({ ...editForm, timeS: e.target.value })}
-                className="w-full bg-dark-800 border border-dark-600 rounded-xl px-2 py-3 text-white text-center focus:outline-none focus:border-accent-500"
+                className="w-full min-w-0 bg-dark-800 border border-dark-600 rounded-xl px-2 py-3 text-white text-center focus:outline-none focus:border-accent-500"
                 placeholder="ss"
               />
             </div>
