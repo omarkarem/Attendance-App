@@ -1,7 +1,15 @@
 import axios from 'axios';
 
+let baseURL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+if (baseURL.endsWith('/')) {
+  baseURL = baseURL.slice(0, -1);
+}
+if (!baseURL.endsWith('/api') && baseURL.includes('vercel.app')) {
+  baseURL += '/api';
+}
+
 const api = axios.create({
-  baseURL: process.env.REACT_APP_API_URL || 'http://localhost:5000/api',
+  baseURL,
   withCredentials: true,
   headers: {
     'Content-Type': 'application/json'
