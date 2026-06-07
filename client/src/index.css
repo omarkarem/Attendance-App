@@ -37,6 +37,22 @@
            transition-all duration-200 placeholder-dark-400;
   }
 
+  input, select {
+    min-height: 52px;
+  }
+
+  input[type="date"] {
+    appearance: none;
+    -webkit-appearance: none;
+    min-height: 52px;
+    display: block;
+    width: 100%;
+  }
+  
+  input[type="date"]::-webkit-date-and-time-value {
+    min-height: 1.5em;
+  }
+
   button {
     @apply transition-all duration-200 active:scale-95;
   }
