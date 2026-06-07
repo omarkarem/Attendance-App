@@ -40,8 +40,9 @@ const formatPace = (distanceMeters, timeSeconds, category) => {
 };
 
 const Tests = () => {
-  const { user } = useAuth();
+  useAuth();
   const [activeTab, setActiveTab] = useState('record'); // 'record' or 'manage'
+  // eslint-disable-next-line no-unused-vars
   const [loading, setLoading] = useState(false);
   const [editingTypeId, setEditingTypeId] = useState(null);
 
