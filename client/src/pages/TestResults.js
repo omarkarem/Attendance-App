@@ -3,6 +3,7 @@ import { HiOutlineTrash, HiOutlineClipboardDocumentList, HiOutlineSparkles, HiOu
 import { FaSwimmer, FaRunning, FaBicycle } from 'react-icons/fa';
 import toast from 'react-hot-toast';
 import Modal from '../components/Modal';
+import api from '../utils/api';
 
 const formatTime = (totalSeconds) => {
   const h = Math.floor(totalSeconds / 3600);
@@ -64,22 +65,16 @@ const TestResults = () => {
 
   const fetchResults = async () => {
     try {
-      const headers = { 'Authorization': `Bearer ${localStorage.getItem('token')}` };
-      const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
-      
       const [resultsRes, athletesRes, typesRes] = await Promise.all([
-        fetch(`${API_URL}/tests/results`, { headers }),
-        fetch(`${API_URL}/athletes`, { headers }),
-        fetch(`${API_URL}/tests/types`, { headers })
+        api.get('/tests/results'),
+        api.get('/athletes'),
+        api.get('/tests/types')
       ]);
 
-      if (resultsRes.ok) setResults(await resultsRes.json());
-      if (athletesRes.ok) setAthletes(await athletesRes.json());
-      if (typesRes.ok) setTestTypes(await typesRes.json());
+      setResults(resultsRes.data);
+      setAthletes(athletesRes.data);
+      setTestTypes(typesRes.data);
       
-      if (!resultsRes.ok) {
-        toast.error('Failed to load results');
-      }
     } catch (error) {
       toast.error('Network error');
     } finally {
@@ -116,8 +111,6 @@ const TestResults = () => {
   const handleUpdateResult = async (e) => {
     e.preventDefault();
     try {
-      const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
-      
       const distanceMeters = editForm.distanceUnit === 'km' 
           ? parseFloat(editForm.distanceValue) * 1000 
           : parseFloat(editForm.distanceValue);
@@ -135,24 +128,11 @@ const TestResults = () => {
         description: editForm.description
       };
 
-      const res = await fetch(`${API_URL}/tests/results/${editingResult._id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify(payload)
-      });
+      const { data: updatedResult } = await api.put(`/tests/results/${editingResult._id}`, payload);
       
-      if (res.ok) {
-        const updatedResult = await res.json();
-        setResults(results.map(r => r._id === updatedResult._id ? updatedResult : r));
-        toast.success('Result updated');
-        setEditingResult(null);
-      } else {
-        const data = await res.json();
-        toast.error(data.message || 'Error updating result');
-      }
+      setResults(results.map(r => r._id === updatedResult._id ? updatedResult : r));
+      toast.success('Result updated');
+      setEditingResult(null);
     } catch (error) {
       toast.error('Network error');
     }
@@ -161,17 +141,9 @@ const TestResults = () => {
   const handleDeleteResult = async (id) => {
     if (!window.confirm('Delete this test result?')) return;
     try {
-      const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
-      const res = await fetch(`${API_URL}/tests/results/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-      });
-      if (res.ok) {
-        setResults(results.filter(r => r._id !== id));
-        toast.success('Result deleted');
-      } else {
-        toast.error('Error deleting result');
-      }
+      await api.delete(`/tests/results/${id}`);
+      setResults(results.filter(r => r._id !== id));
+      toast.success('Result deleted');
     } catch (error) {
       toast.error('Network error');
     }
