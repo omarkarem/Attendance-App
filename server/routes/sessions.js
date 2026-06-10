@@ -135,7 +135,20 @@ router.put('/:id', async (req, res) => {
     const session = await Session.findOne({ _id: req.params.id, coach: req.user._id });
     if (!session) return res.status(404).json({ message: 'Session not found' });
     
-    if (assignedAthletes !== undefined) session.assignedAthletes = assignedAthletes;
+    if (assignedAthletes !== undefined) {
+      session.assignedAthletes = assignedAthletes;
+
+      // If this session was auto-generated from a schedule template,
+      // sync the change back to the parent schedule so the athlete profile
+      // "Enrolled Templates" section stays accurate.
+      if (session.scheduleId) {
+        const Schedule = require('../models/Schedule');
+        await Schedule.findOneAndUpdate(
+          { _id: session.scheduleId, coach: req.user._id },
+          { $set: { assignedAthletes } }
+        );
+      }
+    }
     
     await session.save();
     res.json(session);
@@ -143,6 +156,7 @@ router.put('/:id', async (req, res) => {
     res.status(500).json({ message: error.message || 'Error updating session.' });
   }
 });
+
 
 // DELETE /api/sessions/:id - Delete a session and its attendance records
 router.delete('/:id', async (req, res) => {

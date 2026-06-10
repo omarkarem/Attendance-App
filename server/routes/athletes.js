@@ -139,4 +139,104 @@ router.delete('/:id/permanent', async (req, res) => {
   }
 });
 
+// GET /api/athletes/:id/profile - Get comprehensive athlete profile data
+router.get('/:id/profile', async (req, res) => {
+  try {
+    const Attendance = require('../models/Attendance');
+    const Session = require('../models/Session');
+    const Schedule = require('../models/Schedule');
+    const TestResult = require('../models/TestResult');
+
+    const athlete = await Athlete.findOne({
+      _id: req.params.id,
+      coach: req.user._id
+    });
+
+    if (!athlete) {
+      return res.status(404).json({ message: 'Athlete not found.' });
+    }
+
+    // --- Attendance Stats ---
+    const allAttendance = await Attendance.find({
+      coach: req.user._id,
+      athlete: athlete._id
+    }).sort({ date: 1 });
+
+    const totalRecords = allAttendance.length;
+    const presentRecords = allAttendance.filter(a => a.present).length;
+    const attendanceRate = totalRecords > 0 ? Math.round((presentRecords / totalRecords) * 100) : 0;
+
+    // Calculate current streak (consecutive present from most recent backwards)
+    let streak = 0;
+    for (let i = allAttendance.length - 1; i >= 0; i--) {
+      if (allAttendance[i].present) {
+        streak++;
+      } else {
+        break;
+      }
+    }
+
+    // --- Monthly attendance trend (last 6 months) ---
+    const now = new Date();
+    const monthlyTrend = [];
+    for (let i = 5; i >= 0; i--) {
+      const monthStart = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const monthEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0, 23, 59, 59);
+      
+      const monthAttendance = await Attendance.countDocuments({
+        coach: req.user._id,
+        athlete: athlete._id,
+        date: { $gte: monthStart, $lte: monthEnd }
+      });
+      
+      const monthPresent = await Attendance.countDocuments({
+        coach: req.user._id,
+        athlete: athlete._id,
+        date: { $gte: monthStart, $lte: monthEnd },
+        present: true
+      });
+
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      monthlyTrend.push({
+        month: monthNames[monthStart.getMonth()],
+        year: monthStart.getFullYear(),
+        total: monthAttendance,
+        present: monthPresent,
+        rate: monthAttendance > 0 ? Math.round((monthPresent / monthAttendance) * 100) : 0
+      });
+    }
+
+    // --- Enrolled Schedules ---
+    const schedules = await Schedule.find({
+      coach: req.user._id,
+      active: true,
+      assignedAthletes: athlete._id
+    });
+
+    // --- Test Results ---
+    const testResults = await TestResult.find({
+      coach: req.user._id,
+      athlete: athlete._id
+    })
+      .populate('testType', 'title category measureType targetDistance targetTime')
+      .sort({ date: -1 });
+
+    res.json({
+      athlete,
+      attendance: {
+        rate: attendanceRate,
+        totalSessions: totalRecords,
+        attended: presentRecords,
+        streak,
+        monthlyTrend
+      },
+      schedules,
+      testResults,
+      testCount: testResults.length
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message || 'Error fetching athlete profile.' });
+  }
+});
+
 module.exports = router;

@@ -14,6 +14,7 @@ import AttendanceGrid from './pages/AttendanceGrid';
 import Export from './pages/Export';
 import Tests from './pages/Tests';
 import TestResults from './pages/TestResults';
+import AthleteProfile from './pages/AthleteProfile';
 
 // Protected Route wrapper
 const ProtectedRoute = ({ children }) => {
@@ -88,6 +89,11 @@ const AppRoutes = () => {
       <Route path="/athletes" element={
         <ProtectedRoute>
           <AppLayout><Athletes /></AppLayout>
+        </ProtectedRoute>
+      } />
+      <Route path="/athlete/:id" element={
+        <ProtectedRoute>
+          <AppLayout><AthleteProfile /></AppLayout>
         </ProtectedRoute>
       } />
       <Route path="/tests" element={
