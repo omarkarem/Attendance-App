@@ -49,7 +49,19 @@ router.put('/:id', async (req, res) => {
     if (!schedule) return res.status(404).json({ message: 'Schedule not found' });
     
     if (active !== undefined) schedule.active = active;
-    if (assignedAthletes !== undefined) schedule.assignedAthletes = assignedAthletes;
+    if (assignedAthletes !== undefined) {
+      schedule.assignedAthletes = assignedAthletes;
+      
+      // Update assigned athletes in all sessions generated from this schedule
+      const Session = require('../models/Session');
+      
+      await Session.updateMany({
+        coach: req.user._id,
+        scheduleId: schedule._id
+      }, {
+        $set: { assignedAthletes: assignedAthletes }
+      });
+    }
     
     await schedule.save();
     res.json(schedule);
