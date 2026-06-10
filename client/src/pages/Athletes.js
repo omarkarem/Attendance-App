@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
 import Modal from '../components/Modal';
 import toast from 'react-hot-toast';
@@ -22,6 +23,7 @@ const Athletes = () => {
   const [formIsNew, setFormIsNew] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [showInactive, setShowInactive] = useState(false);
+  const navigate = useNavigate();
 
   useEffect(() => {
     fetchAthletes();
@@ -166,8 +168,9 @@ const Athletes = () => {
           {filtered.map((athlete, index) => (
             <div
               key={athlete._id}
-              className="glass-card-hover p-4 flex items-center justify-between animate-slide-up"
+              className="glass-card-hover p-4 flex items-center justify-between animate-slide-up cursor-pointer"
               style={{ animationDelay: `${index * 30}ms` }}
+              onClick={() => navigate(`/athlete/${athlete._id}`)}
             >
               <div className="flex items-center gap-3 min-w-0">
                 <div className="w-10 h-10 rounded-full bg-gradient-to-br from-accent-500/30 to-neon-purple/30 flex items-center justify-center text-sm font-bold text-white flex-shrink-0">
@@ -192,13 +195,13 @@ const Athletes = () => {
                 {showInactive ? (
                   <>
                     <button
-                      onClick={() => reactivateAthlete(athlete)}
+                      onClick={(e) => { e.stopPropagation(); reactivateAthlete(athlete); }}
                       className="px-3 py-1.5 rounded-lg text-xs font-medium bg-accent-500/10 text-accent-400 hover:bg-accent-500/20 transition-all"
                     >
                       Reactivate
                     </button>
                     <button
-                      onClick={() => deleteAthletePermanent(athlete._id)}
+                      onClick={(e) => { e.stopPropagation(); deleteAthletePermanent(athlete._id); }}
                       className="w-9 h-9 flex items-center justify-center rounded-lg text-dark-400 hover:text-red-400 hover:bg-red-500/10 transition-all"
                       title="Permanently Delete"
                     >
@@ -208,13 +211,13 @@ const Athletes = () => {
                 ) : (
                   <>
                     <button
-                      onClick={() => openEditModal(athlete)}
+                      onClick={(e) => { e.stopPropagation(); openEditModal(athlete); }}
                       className="w-9 h-9 flex items-center justify-center rounded-lg text-dark-400 hover:text-white hover:bg-dark-600 transition-all"
                     >
                       <HiOutlinePencilSquare className="w-4 h-4" />
                     </button>
                     <button
-                      onClick={() => deactivateAthlete(athlete._id)}
+                      onClick={(e) => { e.stopPropagation(); deactivateAthlete(athlete._id); }}
                       className="w-9 h-9 flex items-center justify-center rounded-lg text-dark-400 hover:text-red-400 hover:bg-red-500/10 transition-all"
                     >
                       <HiOutlineTrash className="w-4 h-4" />

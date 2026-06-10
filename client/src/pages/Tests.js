@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { HiOutlinePlus, HiOutlineTrash, HiOutlineChartBar, HiOutlineCog, HiOutlinePencil } from 'react-icons/hi2';
 import toast from 'react-hot-toast';
+import { useSearchParams } from 'react-router-dom';
 import useAuth from '../hooks/useAuth';
 import api from '../utils/api';
 
@@ -42,6 +43,7 @@ const formatPace = (distanceMeters, timeSeconds, category) => {
 
 const Tests = () => {
   useAuth();
+  const [searchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState('record'); // 'record' or 'manage'
   // eslint-disable-next-line no-unused-vars
   const [loading, setLoading] = useState(false);
@@ -79,6 +81,12 @@ const Tests = () => {
 
       setAthletes(athletesRes.data);
       setTestTypes(typesRes.data);
+
+      // Pre-select athlete from query param (e.g. coming from Athlete Profile)
+      const preselectedId = searchParams.get('athleteId');
+      if (preselectedId) {
+        setResultForm(prev => ({ ...prev, athleteId: preselectedId }));
+      }
     } catch (error) {
       toast.error('Failed to load data');
       console.error(error);
@@ -89,6 +97,7 @@ const Tests = () => {
 
   useEffect(() => {
     fetchData();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // --- Handlers for Test Types ---
