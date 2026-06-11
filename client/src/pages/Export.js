@@ -4,7 +4,13 @@ import toast from 'react-hot-toast';
 import {
   HiOutlineArrowDownTray,
   HiOutlineDocumentText,
-  HiOutlineTableCells
+  HiOutlineTableCells,
+  HiOutlineCalendarDays,
+  HiOutlineChartBar,
+  HiOutlineUserGroup,
+  HiOutlineBeaker,
+  HiOutlineUser,
+  HiOutlineClipboardDocumentList
 } from 'react-icons/hi2';
 
 const monthNames = [
@@ -12,17 +18,41 @@ const monthNames = [
   'July', 'August', 'September', 'October', 'November', 'December'
 ];
 
+const periodOptions = [
+  { value: '1w', label: '1 Week' },
+  { value: '1m', label: '1 Month' },
+  { value: '3m', label: '3 Months' },
+  { value: '6m', label: '6 Months' },
+  { value: 'all', label: 'All Time' },
+  { value: 'custom', label: 'Custom' },
+];
+
 const Export = () => {
   const now = new Date();
-  const [month, setMonth] = useState(now.getMonth() + 1);
-  const [year, setYear] = useState(now.getFullYear());
-  const [format, setFormat] = useState('excel');
-  const [sessionFilter, setSessionFilter] = useState('all');
-  const [sessionNames, setSessionNames] = useState([]);
+
+  // ── Shared State ──
+  const [activeTab, setActiveTab] = useState('attendance');
+  const [format, setFormat] = useState('pdf');
   const [loading, setLoading] = useState(false);
 
+  // ── Attendance State ──
+  const [month, setMonth] = useState(now.getMonth() + 1);
+  const [year, setYear] = useState(now.getFullYear());
+  const [sessionFilter, setSessionFilter] = useState('all');
+  const [sessionNames, setSessionNames] = useState([]);
+
+  // ── Tests State ──
+  const [testMode, setTestMode] = useState('athlete'); // 'athlete' or 'test'
+  const [selectedAthlete, setSelectedAthlete] = useState('');
+  const [selectedTestType, setSelectedTestType] = useState('');
+  const [period, setPeriod] = useState('1m');
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
+  const [athletes, setAthletes] = useState([]);
+  const [testTypes, setTestTypes] = useState([]);
+
+  // ── Fetch sessions for attendance tab ──
   useEffect(() => {
-    // Fetch available session names for the selected month
     const fetchSessions = async () => {
       try {
         const startDate = new Date(year, month - 1, 1).toISOString();
@@ -34,10 +64,37 @@ const Export = () => {
         // Silently fail
       }
     };
-    fetchSessions();
-  }, [month, year]);
+    if (activeTab === 'attendance') fetchSessions();
+  }, [month, year, activeTab]);
 
-  const handleExport = async () => {
+  // ── Fetch athletes and test types for tests tab ──
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const [athletesRes, typesRes] = await Promise.all([
+          api.get('/athletes'),
+          api.get('/tests/types')
+        ]);
+        setAthletes(athletesRes.data);
+        setTestTypes(typesRes.data);
+
+        // Auto-select first items
+        if (athletesRes.data.length > 0 && !selectedAthlete) {
+          setSelectedAthlete(athletesRes.data[0]._id);
+        }
+        if (typesRes.data.length > 0 && !selectedTestType) {
+          setSelectedTestType(typesRes.data[0]._id);
+        }
+      } catch (error) {
+        // Silently fail
+      }
+    };
+    if (activeTab === 'tests') fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
+  // ── Export Attendance ──
+  const handleExportAttendance = async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams({
@@ -47,11 +104,8 @@ const Export = () => {
         sessionFilter
       });
 
-      const response = await api.get(`/export?${params}`, {
-        responseType: 'blob'
-      });
+      const response = await api.get(`/export?${params}`, { responseType: 'blob' });
 
-      // Create download link
       const blob = new Blob([response.data]);
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -68,76 +122,327 @@ const Export = () => {
     }
   };
 
-  // Generate year options (current year +/- 2)
+  // ── Export Tests ──
+  const handleExportTests = async () => {
+    // Validate
+    if (testMode === 'athlete' && !selectedAthlete) {
+      toast.error('Please select an athlete.');
+      return;
+    }
+    if (testMode === 'test' && !selectedTestType) {
+      toast.error('Please select a test type.');
+      return;
+    }
+    if (period === 'custom' && (!customStart || !customEnd)) {
+      toast.error('Please select start and end dates.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ mode: testMode, format, period });
+
+      if (testMode === 'athlete') params.append('athleteId', selectedAthlete);
+      if (testMode === 'test') params.append('testTypeId', selectedTestType);
+      if (period === 'custom') {
+        params.append('startDate', customStart);
+        params.append('endDate', customEnd);
+      }
+
+      const response = await api.get(`/export/tests?${params}`, { responseType: 'blob' });
+
+      const blob = new Blob([response.data]);
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+
+      let filename;
+      if (testMode === 'athlete') {
+        const athlete = athletes.find(a => a._id === selectedAthlete);
+        filename = `Tests_${athlete?.name || 'Athlete'}.${format === 'excel' ? 'xlsx' : 'pdf'}`;
+      } else {
+        const testType = testTypes.find(t => t._id === selectedTestType);
+        filename = `TestReport_${testType?.title || 'Test'}.${format === 'excel' ? 'xlsx' : 'pdf'}`;
+      }
+      link.download = filename;
+
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      toast.error('Failed to export. Make sure there is test data for the selected filters.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleExport = () => {
+    if (activeTab === 'attendance') handleExportAttendance();
+    else handleExportTests();
+  };
+
+  // Year options
   const yearOptions = [];
   for (let y = now.getFullYear() - 2; y <= now.getFullYear() + 1; y++) {
     yearOptions.push(y);
   }
 
+  // ── Preview text ──
+  const getPreviewText = () => {
+    if (activeTab === 'attendance') {
+      return `${monthNames[month - 1]} ${year} • ${sessionFilter === 'all' ? 'All sessions' : sessionFilter} • ${format.toUpperCase()}`;
+    }
+    if (testMode === 'athlete') {
+      const athlete = athletes.find(a => a._id === selectedAthlete);
+      const periodLabel = periodOptions.find(p => p.value === period)?.label || period;
+      return `${athlete?.name || 'Athlete'} • ${periodLabel} • ${format.toUpperCase()}`;
+    }
+    const testType = testTypes.find(t => t._id === selectedTestType);
+    const periodLabel = periodOptions.find(p => p.value === period)?.label || period;
+    return `${testType?.title || 'Test'} • ${periodLabel} • ${format.toUpperCase()}`;
+  };
+
   return (
     <div className="page-container">
       <h1 className="page-title flex items-center gap-2">
         <HiOutlineArrowDownTray className="w-7 h-7 text-accent-400" />
-        Export Attendance
+        Export Data
       </h1>
 
-      <div className="max-w-lg mx-auto space-y-6 animate-slide-up">
-        {/* Month & Year */}
-        <div className="glass-card p-5">
-          <h2 className="text-sm font-semibold text-dark-300 mb-4">Select Period</h2>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs text-dark-400 mb-1.5">Month</label>
-              <select
-                id="export-month"
-                value={month}
-                onChange={(e) => setMonth(parseInt(e.target.value))}
-                className="w-full"
-              >
-                {monthNames.map((name, i) => (
-                  <option key={i} value={i + 1}>{name}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs text-dark-400 mb-1.5">Year</label>
-              <select
-                id="export-year"
-                value={year}
-                onChange={(e) => setYear(parseInt(e.target.value))}
-                className="w-full"
-              >
-                {yearOptions.map(y => (
-                  <option key={y} value={y}>{y}</option>
-                ))}
-              </select>
-            </div>
-          </div>
+      <div className="max-w-lg mx-auto space-y-5 animate-slide-up">
+
+        {/* ── Tab Switcher ── */}
+        <div className="glass-card p-1.5 flex gap-1">
+          <button
+            id="tab-attendance"
+            onClick={() => setActiveTab('attendance')}
+            className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold transition-all duration-200 ${
+              activeTab === 'attendance'
+                ? 'bg-accent-500/15 text-accent-400 shadow-glow'
+                : 'text-dark-400 hover:text-dark-200 hover:bg-dark-700/50'
+            }`}
+          >
+            <HiOutlineCalendarDays className="w-4.5 h-4.5" />
+            Attendance
+          </button>
+          <button
+            id="tab-tests"
+            onClick={() => setActiveTab('tests')}
+            className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold transition-all duration-200 ${
+              activeTab === 'tests'
+                ? 'bg-accent-500/15 text-accent-400 shadow-glow'
+                : 'text-dark-400 hover:text-dark-200 hover:bg-dark-700/50'
+            }`}
+          >
+            <HiOutlineChartBar className="w-4.5 h-4.5" />
+            Tests
+          </button>
         </div>
 
-        {/* Session Filter */}
-        {sessionNames.length > 0 && (
-          <div className="glass-card p-5">
-            <h2 className="text-sm font-semibold text-dark-300 mb-4">Session Filter</h2>
-            <select
-              id="export-session"
-              value={sessionFilter}
-              onChange={(e) => setSessionFilter(e.target.value)}
-              className="w-full"
-            >
-              <option value="all">All Sessions</option>
-              {sessionNames.map(name => (
-                <option key={name} value={name}>{name}</option>
-              ))}
-            </select>
-          </div>
+        {/* ══════════════════════════════════════ */}
+        {/* ── ATTENDANCE TAB ── */}
+        {/* ══════════════════════════════════════ */}
+        {activeTab === 'attendance' && (
+          <>
+            {/* Month & Year */}
+            <div className="glass-card p-5">
+              <h2 className="text-sm font-semibold text-dark-300 mb-4 flex items-center gap-2">
+                <HiOutlineCalendarDays className="w-4 h-4 text-accent-400" />
+                Select Period
+              </h2>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-dark-400 mb-1.5">Month</label>
+                  <select
+                    id="export-month"
+                    value={month}
+                    onChange={(e) => setMonth(parseInt(e.target.value))}
+                    className="w-full"
+                  >
+                    {monthNames.map((name, i) => (
+                      <option key={i} value={i + 1}>{name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-dark-400 mb-1.5">Year</label>
+                  <select
+                    id="export-year"
+                    value={year}
+                    onChange={(e) => setYear(parseInt(e.target.value))}
+                    className="w-full"
+                  >
+                    {yearOptions.map(y => (
+                      <option key={y} value={y}>{y}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* Session Filter */}
+            {sessionNames.length > 0 && (
+              <div className="glass-card p-5">
+                <h2 className="text-sm font-semibold text-dark-300 mb-4">Session Filter</h2>
+                <select
+                  id="export-session"
+                  value={sessionFilter}
+                  onChange={(e) => setSessionFilter(e.target.value)}
+                  className="w-full"
+                >
+                  <option value="all">All Sessions</option>
+                  {sessionNames.map(name => (
+                    <option key={name} value={name}>{name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </>
         )}
 
-        {/* Format Selection */}
+        {/* ══════════════════════════════════════ */}
+        {/* ── TESTS TAB ── */}
+        {/* ══════════════════════════════════════ */}
+        {activeTab === 'tests' && (
+          <>
+            {/* Mode Selector */}
+            <div className="glass-card p-5">
+              <h2 className="text-sm font-semibold text-dark-300 mb-4 flex items-center gap-2">
+                <HiOutlineClipboardDocumentList className="w-4 h-4 text-accent-400" />
+                Export Mode
+              </h2>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  id="mode-athlete"
+                  onClick={() => setTestMode('athlete')}
+                  className={`p-3.5 rounded-xl border-2 transition-all flex flex-col items-center gap-2 ${
+                    testMode === 'athlete'
+                      ? 'border-accent-500 bg-accent-500/10 text-accent-400'
+                      : 'border-dark-600 bg-dark-700/50 text-dark-400 hover:border-dark-500'
+                  }`}
+                >
+                  <HiOutlineUser className="w-6 h-6" />
+                  <span className="text-sm font-medium">Single Athlete</span>
+                  <span className="text-[10px] text-dark-500 leading-tight text-center">All tests for one athlete</span>
+                </button>
+                <button
+                  id="mode-test"
+                  onClick={() => setTestMode('test')}
+                  className={`p-3.5 rounded-xl border-2 transition-all flex flex-col items-center gap-2 ${
+                    testMode === 'test'
+                      ? 'border-accent-500 bg-accent-500/10 text-accent-400'
+                      : 'border-dark-600 bg-dark-700/50 text-dark-400 hover:border-dark-500'
+                  }`}
+                >
+                  <HiOutlineBeaker className="w-6 h-6" />
+                  <span className="text-sm font-medium">By Test</span>
+                  <span className="text-[10px] text-dark-500 leading-tight text-center">All athletes for one test</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Athlete / Test Type Selection */}
+            <div className="glass-card p-5">
+              {testMode === 'athlete' ? (
+                <>
+                  <h2 className="text-sm font-semibold text-dark-300 mb-4 flex items-center gap-2">
+                    <HiOutlineUserGroup className="w-4 h-4 text-accent-400" />
+                    Select Athlete
+                  </h2>
+                  <select
+                    id="export-athlete"
+                    value={selectedAthlete}
+                    onChange={(e) => setSelectedAthlete(e.target.value)}
+                    className="w-full"
+                  >
+                    {athletes.length === 0 && <option value="">No athletes found</option>}
+                    {athletes.map(a => (
+                      <option key={a._id} value={a._id}>{a.name}</option>
+                    ))}
+                  </select>
+                </>
+              ) : (
+                <>
+                  <h2 className="text-sm font-semibold text-dark-300 mb-4 flex items-center gap-2">
+                    <HiOutlineBeaker className="w-4 h-4 text-accent-400" />
+                    Select Test Type
+                  </h2>
+                  <select
+                    id="export-test-type"
+                    value={selectedTestType}
+                    onChange={(e) => setSelectedTestType(e.target.value)}
+                    className="w-full"
+                  >
+                    {testTypes.length === 0 && <option value="">No test types found</option>}
+                    {testTypes.map(t => (
+                      <option key={t._id} value={t._id}>{t.title} ({t.category})</option>
+                    ))}
+                  </select>
+                </>
+              )}
+            </div>
+
+            {/* Period Filter */}
+            <div className="glass-card p-5">
+              <h2 className="text-sm font-semibold text-dark-300 mb-4 flex items-center gap-2">
+                <HiOutlineCalendarDays className="w-4 h-4 text-accent-400" />
+                Time Period
+              </h2>
+              <div className="grid grid-cols-3 gap-2 mb-3">
+                {periodOptions.map(opt => (
+                  <button
+                    key={opt.value}
+                    id={`period-${opt.value}`}
+                    onClick={() => setPeriod(opt.value)}
+                    className={`py-2.5 px-3 rounded-xl text-xs font-semibold transition-all border-2 ${
+                      period === opt.value
+                        ? 'border-accent-500 bg-accent-500/10 text-accent-400'
+                        : 'border-dark-600 bg-dark-700/50 text-dark-400 hover:border-dark-500 hover:text-dark-300'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Custom date pickers */}
+              {period === 'custom' && (
+                <div className="grid grid-cols-2 gap-3 mt-4 pt-4 border-t border-dark-600/50">
+                  <div>
+                    <label className="block text-xs text-dark-400 mb-1.5">Start Date</label>
+                    <input
+                      id="custom-start"
+                      type="date"
+                      value={customStart}
+                      onChange={(e) => setCustomStart(e.target.value)}
+                      className="w-full"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-dark-400 mb-1.5">End Date</label>
+                    <input
+                      id="custom-end"
+                      type="date"
+                      value={customEnd}
+                      onChange={(e) => setCustomEnd(e.target.value)}
+                      className="w-full"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        {/* ══════════════════════════════════════ */}
+        {/* ── FORMAT SELECTOR (shared) ── */}
+        {/* ══════════════════════════════════════ */}
         <div className="glass-card p-5">
           <h2 className="text-sm font-semibold text-dark-300 mb-4">Export Format</h2>
           <div className="grid grid-cols-2 gap-3">
             <button
+              id="format-excel"
               onClick={() => setFormat('excel')}
               className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center gap-2 ${
                 format === 'excel'
@@ -150,6 +455,7 @@ const Export = () => {
               <span className="text-[10px] text-dark-500">.xlsx</span>
             </button>
             <button
+              id="format-pdf"
               onClick={() => setFormat('pdf')}
               className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center gap-2 ${
                 format === 'pdf'
@@ -164,8 +470,9 @@ const Export = () => {
           </div>
         </div>
 
-        {/* Export Button */}
+        {/* ── Export Button ── */}
         <button
+          id="export-btn"
           onClick={handleExport}
           disabled={loading}
           className="btn-primary w-full flex items-center justify-center gap-2 text-base py-4"
@@ -186,9 +493,9 @@ const Export = () => {
           )}
         </button>
 
-        {/* Preview Text */}
+        {/* ── Preview Text ── */}
         <p className="text-center text-xs text-dark-500">
-          Exporting {monthNames[month - 1]} {year} • {sessionFilter === 'all' ? 'All sessions' : sessionFilter} • {format.toUpperCase()}
+          Exporting {getPreviewText()}
         </p>
       </div>
     </div>
