@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import {
   HiOutlineHome,
@@ -8,7 +8,9 @@ import {
   HiOutlineArrowDownTray,
   HiOutlineArrowRightOnRectangle,
   HiOutlineChartBar,
-  HiOutlineClipboardDocumentList
+  HiOutlineClipboardDocumentList,
+  HiOutlineBars3,
+  HiOutlineXMark
 } from 'react-icons/hi2';
 import useAuth from '../hooks/useAuth';
 
@@ -22,18 +24,43 @@ const navItems = [
   { path: '/export', icon: HiOutlineArrowDownTray, label: 'Export' },
 ];
 
+const mainNavItems = [
+  { path: '/', icon: HiOutlineHome, label: 'Home' },
+  { path: '/sessions', icon: HiOutlineCalendar, label: 'Sessions' },
+  { path: '/athletes', icon: HiOutlineUserGroup, label: 'Athletes' },
+  { path: '/tests', icon: HiOutlineChartBar, label: 'Tests' },
+  { path: '/attendance', icon: HiOutlineTableCells, label: 'Grid' },
+];
+
 const Navbar = () => {
   const { user, logout } = useAuth();
   const location = useLocation();
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   return (
     <>
-      {/* Desktop Sidebar */}
-      <aside className="hidden md:flex fixed left-0 top-0 bottom-0 w-64 bg-dark-800/80 backdrop-blur-xl border-r border-dark-600/50 flex-col z-40">
+      {/* Mobile Drawer Overlay */}
+      {isMobileMenuOpen && (
+        <div 
+          className="md:hidden fixed inset-0 bg-black/60 z-40 backdrop-blur-sm"
+          onClick={() => setIsMobileMenuOpen(false)}
+        />
+      )}
+
+      {/* Sidebar (Desktop + Mobile Drawer) */}
+      <aside className={`${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 transition-transform duration-300 fixed left-0 top-0 bottom-0 w-64 bg-dark-800/95 md:bg-dark-800/80 backdrop-blur-xl border-r border-dark-600/50 flex flex-col z-50`}>
         {/* Logo */}
-        <div className="p-6 border-b border-dark-600/50">
-          <h1 className="text-xl font-bold gradient-text">AttendTrack</h1>
-          <p className="text-dark-400 text-sm mt-1">Coach Dashboard</p>
+        <div className="p-6 border-b border-dark-600/50 flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-bold gradient-text">AttendTrack</h1>
+            <p className="text-dark-400 text-sm mt-1">Coach Dashboard</p>
+          </div>
+          <button 
+            className="md:hidden p-2 text-dark-300 hover:text-white"
+            onClick={() => setIsMobileMenuOpen(false)}
+          >
+            <HiOutlineXMark className="w-6 h-6" />
+          </button>
         </div>
 
         {/* Nav Items */}
@@ -49,6 +76,7 @@ const Navbar = () => {
                     : 'text-dark-300 hover:bg-dark-700 hover:text-white'
                 }`
               }
+              onClick={() => setIsMobileMenuOpen(false)}
             >
               <item.icon className="w-5 h-5" />
               <span>{item.label}</span>
@@ -78,9 +106,9 @@ const Navbar = () => {
       </aside>
 
       {/* Mobile Bottom Nav */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-dark-800/90 backdrop-blur-xl border-t border-dark-600/50 z-40 pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-1">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-dark-800/90 backdrop-blur-xl border-t border-dark-600/50 z-30 pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-1">
         <div className="flex items-center justify-around px-2 py-1">
-          {navItems.map((item) => {
+          {mainNavItems.map((item) => {
             const isActive = location.pathname === item.path;
             return (
               <NavLink
@@ -97,8 +125,16 @@ const Navbar = () => {
       </nav>
 
       {/* Mobile Top Bar */}
-      <header className="md:hidden fixed top-0 left-0 right-0 bg-dark-800/90 backdrop-blur-xl border-b border-dark-600/50 z-40 px-4 pb-3 pt-[max(env(safe-area-inset-top),1rem)] flex items-center justify-between">
-        <h1 className="text-lg font-bold gradient-text">AttendTrack</h1>
+      <header className="md:hidden fixed top-0 left-0 right-0 bg-dark-800/90 backdrop-blur-xl border-b border-dark-600/50 z-30 px-4 pb-3 pt-[max(env(safe-area-inset-top),1rem)] flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <button 
+            onClick={() => setIsMobileMenuOpen(true)}
+            className="text-dark-300 hover:text-white transition-colors p-1 -ml-1"
+          >
+            <HiOutlineBars3 className="w-6 h-6" />
+          </button>
+          <h1 className="text-lg font-bold gradient-text">AttendTrack</h1>
+        </div>
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-full bg-gradient-to-br from-accent-400 to-neon-purple flex items-center justify-center text-white font-bold text-xs">
             {user?.name?.charAt(0)?.toUpperCase() || 'C'}
