@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import {
   HiOutlineHome,
@@ -36,12 +36,30 @@ const Navbar = () => {
   const { user, logout } = useAuth();
   const location = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [showNav, setShowNav] = useState(true);
+  const lastScrollY = useRef(0);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      const currentScrollY = window.scrollY;
+
+      if (currentScrollY > lastScrollY.current && currentScrollY > 60) {
+        setShowNav(false);
+      } else if (currentScrollY < lastScrollY.current) {
+        setShowNav(true);
+      }
+      lastScrollY.current = currentScrollY;
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
 
   return (
     <>
       {/* Mobile Drawer Overlay */}
       {isMobileMenuOpen && (
-        <div 
+        <div
           className="md:hidden fixed inset-0 bg-black/60 z-40 backdrop-blur-sm"
           onClick={() => setIsMobileMenuOpen(false)}
         />
@@ -55,7 +73,7 @@ const Navbar = () => {
             <h1 className="text-xl font-bold gradient-text">AttendTrack</h1>
             <p className="text-dark-400 text-sm mt-1">Coach Dashboard</p>
           </div>
-          <button 
+          <button
             className="md:hidden p-2 text-dark-300 hover:text-white"
             onClick={() => setIsMobileMenuOpen(false)}
           >
@@ -70,10 +88,9 @@ const Navbar = () => {
               key={item.path}
               to={item.path}
               className={({ isActive }) =>
-                `flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all duration-200 ${
-                  isActive
-                    ? 'bg-accent-500/10 text-accent-400 shadow-glow'
-                    : 'text-dark-300 hover:bg-dark-700 hover:text-white'
+                `flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all duration-200 ${isActive
+                  ? 'bg-accent-500/10 text-accent-400 shadow-glow'
+                  : 'text-dark-300 hover:bg-dark-700 hover:text-white'
                 }`
               }
               onClick={() => setIsMobileMenuOpen(false)}
@@ -125,26 +142,34 @@ const Navbar = () => {
       </nav>
 
       {/* Mobile Top Bar */}
-      <header className="md:hidden fixed top-0 left-0 right-0 bg-dark-800/90 backdrop-blur-xl border-b border-dark-600/50 z-30 px-4 pb-3 pt-[max(env(safe-area-inset-top),1rem)] flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <button 
+      <header className={`md:hidden fixed top-0 left-0 right-0 z-30 px-4 pb-3 pt-[max(env(safe-area-inset-top),1rem)] flex items-center justify-between transition-transform duration-700 ease-in-out ${showNav ? 'translate-y-0' : '-translate-y-full'}`}>
+        {/* Gradient Blur Background */}
+        <div
+          className="absolute inset-0 top-0 left-0 right-0 h-32 -z-10 bg-dark-900/30 backdrop-blur-sm pointer-events-none"
+          style={{
+            WebkitMaskImage: 'linear-gradient(to bottom, black 20%, transparent 100%)',
+            maskImage: 'linear-gradient(to bottom, black 20%, transparent 100%)'
+          }}
+        />
+        <div className="flex items-center">
+          <button
             onClick={() => setIsMobileMenuOpen(true)}
             className="text-dark-300 hover:text-white transition-colors p-1 -ml-1"
           >
             <HiOutlineBars3 className="w-6 h-6" />
           </button>
-          <h1 className="text-lg font-bold gradient-text">AttendTrack</h1>
         </div>
+        <h1 className="text-lg font-bold gradient-text">AttendTrack</h1>
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-full bg-gradient-to-br from-accent-400 to-neon-purple flex items-center justify-center text-white font-bold text-xs">
             {user?.name?.charAt(0)?.toUpperCase() || 'C'}
           </div>
-          <button
+          {/* <button
             onClick={logout}
             className="text-dark-400 hover:text-red-400 transition-colors"
           >
             <HiOutlineArrowRightOnRectangle className="w-5 h-5" />
-          </button>
+          </button> */}
         </div>
       </header>
     </>
