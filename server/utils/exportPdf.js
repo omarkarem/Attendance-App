@@ -14,24 +14,65 @@ const generatePdf = (data) => {
     'July', 'August', 'September', 'October', 'November', 'December'
   ];
 
-  // Title
-  doc.fontSize(20).font('Helvetica-Bold')
-    .fillColor('#1a1a2e')
-    .text(`Attendance Report`, { align: 'center' });
+  // ── Colors ──
+  const colors = {
+    primary: '#1a1a2e',
+    headerBg: '#16163a',
+    headerText: '#ffffff',
+    accent: '#6c63ff',
+    presentGreen: '#16a34a',
+    presentBg: '#dcfce7',
+    absentRed: '#dc2626',
+    absentBg: '#fee2e2',
+    muted: '#94a3b8',
+    rowEven: '#f8f9fa',
+    rowOdd: '#ffffff',
+    border: '#e2e8f0',
+    subtitle: '#64748b',
+  };
 
-  doc.fontSize(14).font('Helvetica')
-    .fillColor('#64748b')
+  // ── Title Section ──
+  // Accent bar
+  doc.rect(30, 20, doc.page.width - 60, 4).fill(colors.accent);
+
+  doc.fontSize(22).font('Helvetica-Bold')
+    .fillColor(colors.primary)
+    .text('Attendance Report', 30, 34, { align: 'center' });
+
+  doc.fontSize(13).font('Helvetica')
+    .fillColor(colors.subtitle)
     .text(`${monthNames[month - 1]} ${year}`, { align: 'center' });
 
-  doc.moveDown(1);
+  doc.moveDown(0.8);
 
-  // Summary stats
+  // ── Summary Stats ──
   const totalSessionCount = sessions.length;
   const totalAthleteCount = athletes.length;
 
-  doc.fontSize(11).font('Helvetica-Bold').fillColor('#1a1a2e')
-    .text(`Total Sessions: ${totalSessionCount}    |    Total Athletes: ${totalAthleteCount}`);
-  doc.moveDown(0.5);
+  const statsY = doc.y;
+  const statsBoxW = 130;
+  const statsBoxH = 36;
+  const statsGap = 16;
+  const totalStatsW = statsBoxW * 2 + statsGap;
+  const statsStartX = (doc.page.width - totalStatsW) / 2;
+
+  // Sessions box
+  doc.roundedRect(statsStartX, statsY, statsBoxW, statsBoxH, 6)
+    .fill('#eef2ff');
+  doc.fontSize(9).font('Helvetica').fillColor(colors.subtitle)
+    .text('Total Sessions', statsStartX, statsY + 6, { width: statsBoxW, align: 'center' });
+  doc.fontSize(14).font('Helvetica-Bold').fillColor(colors.accent)
+    .text(totalSessionCount.toString(), statsStartX, statsY + 18, { width: statsBoxW, align: 'center' });
+
+  // Athletes box
+  doc.roundedRect(statsStartX + statsBoxW + statsGap, statsY, statsBoxW, statsBoxH, 6)
+    .fill('#eef2ff');
+  doc.fontSize(9).font('Helvetica').fillColor(colors.subtitle)
+    .text('Total Athletes', statsStartX + statsBoxW + statsGap, statsY + 6, { width: statsBoxW, align: 'center' });
+  doc.fontSize(14).font('Helvetica-Bold').fillColor(colors.accent)
+    .text(totalAthleteCount.toString(), statsStartX + statsBoxW + statsGap, statsY + 18, { width: statsBoxW, align: 'center' });
+
+  doc.y = statsY + statsBoxH + 16;
 
   // Build attendance lookup
   const attendanceLookup = {};
@@ -40,41 +81,41 @@ const generatePdf = (data) => {
     attendanceLookup[key] = { present: a.present };
   });
 
-  // Table
-  const tableTop = doc.y + 10;
+  // ── Table ──
+  const tableTop = doc.y;
   const nameColWidth = 120;
   const cellWidth = Math.min(35, (doc.page.width - 60 - nameColWidth - 80) / Math.max(sessions.length, 1));
   const totalColWidth = 40;
   const pctColWidth = 40;
-  const rowHeight = 20;
+  const rowHeight = 24;
 
   // Header row
   let x = 30;
   let y = tableTop;
 
-  // Background for header
-  doc.rect(x, y, doc.page.width - 60, rowHeight).fill('#1a1a2e');
+  // Header background
+  doc.rect(x, y, doc.page.width - 60, rowHeight + 2).fill(colors.headerBg);
 
-  doc.fontSize(7).font('Helvetica-Bold').fillColor('#ffffff');
-  doc.text('Athlete', x + 4, y + 5, { width: nameColWidth - 8 });
+  doc.fontSize(7).font('Helvetica-Bold').fillColor(colors.headerText);
+  doc.text('Athlete', x + 5, y + 7, { width: nameColWidth - 10 });
 
   x += nameColWidth;
   sessions.forEach(s => {
     const dateStr = new Date(s.date).getDate().toString();
-    doc.text(dateStr, x + 2, y + 5, { width: cellWidth - 4, align: 'center' });
+    doc.text(dateStr, x + 2, y + 7, { width: cellWidth - 4, align: 'center' });
     x += cellWidth;
   });
 
-  doc.text('Total', x + 2, y + 5, { width: totalColWidth - 4, align: 'center' });
+  doc.text('Total', x + 2, y + 7, { width: totalColWidth - 4, align: 'center' });
   x += totalColWidth;
-  doc.text('%', x + 2, y + 5, { width: pctColWidth - 4, align: 'center' });
+  doc.text('%', x + 2, y + 7, { width: pctColWidth - 4, align: 'center' });
 
-  y += rowHeight;
+  y += rowHeight + 2;
 
-  // Data rows
+  // ── Data Rows ──
   athletes.forEach((athlete, index) => {
-    // Check if we need a new page
-    if (y + rowHeight > doc.page.height - 40) {
+    // New page check
+    if (y + rowHeight > doc.page.height - 50) {
       doc.addPage();
       y = 30;
     }
@@ -82,14 +123,17 @@ const generatePdf = (data) => {
     x = 30;
 
     // Alternate row background
-    if (index % 2 === 0) {
-      doc.rect(x, y, doc.page.width - 60, rowHeight).fill('#f8f9fa');
-    } else {
-      doc.rect(x, y, doc.page.width - 60, rowHeight).fill('#ffffff');
-    }
+    const rowBg = index % 2 === 0 ? colors.rowEven : colors.rowOdd;
+    doc.rect(x, y, doc.page.width - 60, rowHeight).fill(rowBg);
 
-    doc.fontSize(7).font('Helvetica').fillColor('#1a1a2e');
-    doc.text(athlete.name, x + 4, y + 5, { width: nameColWidth - 8 });
+    // Row bottom border
+    doc.moveTo(x, y + rowHeight)
+      .lineTo(doc.page.width - 30, y + rowHeight)
+      .strokeColor(colors.border).lineWidth(0.5).stroke();
+
+    // Athlete name
+    doc.fontSize(7).font('Helvetica').fillColor(colors.primary);
+    doc.text(athlete.name, x + 5, y + 8, { width: nameColWidth - 10 });
 
     x += nameColWidth;
     let presentCount = 0;
@@ -103,38 +147,68 @@ const generatePdf = (data) => {
       const hasAssignments = assigned.length > 0;
       const isExpected = hasAssignments ? assigned.some(id => id.toString() === athlete._id.toString()) : true;
 
+      const cellCenterX = x + cellWidth / 2;
+      const cellCenterY = y + rowHeight / 2;
+
       if ((isExpected && record !== undefined) || (record && record.present === true)) {
         expectedCount++;
         if (record.present) {
           presentCount++;
-          doc.font('Helvetica-Bold').fillColor('#16a34a');
-          doc.text('✓', x + 2, y + 5, { width: cellWidth - 4, align: 'center' });
+          // Green filled circle with white checkmark
+          doc.circle(cellCenterX, cellCenterY, 6).fill(colors.presentGreen);
+          doc.fontSize(9).font('Helvetica-Bold').fillColor('#ffffff');
+          doc.text('✓', x + 2, y + 6, { width: cellWidth - 4, align: 'center' });
         } else {
-          doc.font('Helvetica').fillColor('#dc2626');
-          doc.text('✗', x + 2, y + 5, { width: cellWidth - 4, align: 'center' });
+          // Red filled circle with white X
+          doc.circle(cellCenterX, cellCenterY, 6).fill(colors.absentRed);
+          doc.fontSize(9).font('Helvetica-Bold').fillColor('#ffffff');
+          doc.text('✗', x + 2, y + 6, { width: cellWidth - 4, align: 'center' });
         }
       } else {
-        doc.font('Helvetica').fillColor('#94a3b8');
-        doc.text('-', x + 2, y + 5, { width: cellWidth - 4, align: 'center' });
+        doc.fontSize(7).font('Helvetica').fillColor(colors.muted);
+        doc.text('–', x + 2, y + 8, { width: cellWidth - 4, align: 'center' });
       }
       x += cellWidth;
     });
 
-    doc.font('Helvetica-Bold').fillColor('#1a1a2e');
-    doc.text(presentCount.toString(), x + 2, y + 5, { width: totalColWidth - 4, align: 'center' });
+    // Total column
+    doc.fontSize(8).font('Helvetica-Bold').fillColor(colors.primary);
+    doc.text(presentCount.toString(), x + 2, y + 8, { width: totalColWidth - 4, align: 'center' });
     x += totalColWidth;
 
+    // Percentage column — color coded
     const pct = expectedCount > 0 ? Math.round((presentCount / expectedCount) * 100) : 0;
-    doc.text(`${pct}%`, x + 2, y + 5, { width: pctColWidth - 4, align: 'center' });
+    const pctColor = pct >= 80 ? colors.presentGreen : pct >= 50 ? '#f59e0b' : colors.absentRed;
+    doc.fontSize(8).font('Helvetica-Bold').fillColor(pctColor);
+    doc.text(`${pct}%`, x + 2, y + 8, { width: pctColWidth - 4, align: 'center' });
 
     y += rowHeight;
   });
 
-  // Footer
-  doc.moveDown(2);
-  doc.fontSize(8).font('Helvetica').fillColor('#94a3b8')
-    .text(`Generated on ${new Date().toLocaleDateString()}`, 30, doc.page.height - 40, {
-      align: 'center'
+  // ── Legend ──
+  const legendY = Math.min(y + 16, doc.page.height - 60);
+  if (legendY < doc.page.height - 40) {
+    doc.circle(44, legendY + 4, 5).fill(colors.presentGreen);
+    doc.fontSize(7).font('Helvetica-Bold').fillColor('#ffffff')
+      .text('✓', 38, legendY, { width: 12, align: 'center' });
+    doc.fontSize(7).font('Helvetica').fillColor(colors.subtitle)
+      .text('Present', 54, legendY + 1);
+
+    doc.circle(104, legendY + 4, 5).fill(colors.absentRed);
+    doc.fontSize(7).font('Helvetica-Bold').fillColor('#ffffff')
+      .text('✗', 98, legendY, { width: 12, align: 'center' });
+    doc.fontSize(7).font('Helvetica').fillColor(colors.subtitle)
+      .text('Absent', 114, legendY + 1);
+
+    doc.fontSize(7).font('Helvetica').fillColor(colors.muted)
+      .text('–  Not expected', 154, legendY + 1);
+  }
+
+  // ── Footer ──
+  doc.fontSize(8).font('Helvetica').fillColor(colors.muted)
+    .text(`Generated on ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`, 30, doc.page.height - 35, {
+      align: 'center',
+      width: doc.page.width - 60
     });
 
   return doc;
