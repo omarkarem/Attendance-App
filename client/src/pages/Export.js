@@ -45,7 +45,7 @@ const Export = () => {
   const [testMode, setTestMode] = useState('athlete'); // 'athlete' or 'test'
   const [selectedAthlete, setSelectedAthlete] = useState('');
   const [selectedTestTypes, setSelectedTestTypes] = useState([]);
-  const [period, setPeriod] = useState('1m');
+  const [period, setPeriod] = useState('3m');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
   const [athletes, setAthletes] = useState([]);
@@ -226,11 +226,10 @@ const Export = () => {
           <button
             id="tab-attendance"
             onClick={() => setActiveTab('attendance')}
-            className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold transition-all duration-200 ${
-              activeTab === 'attendance'
+            className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold transition-all duration-200 ${activeTab === 'attendance'
                 ? 'bg-accent-500/15 text-accent-400 shadow-glow'
                 : 'text-dark-400 hover:text-dark-200 hover:bg-dark-700/50'
-            }`}
+              }`}
           >
             <HiOutlineCalendarDays className="w-4.5 h-4.5" />
             Attendance
@@ -238,11 +237,10 @@ const Export = () => {
           <button
             id="tab-tests"
             onClick={() => setActiveTab('tests')}
-            className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold transition-all duration-200 ${
-              activeTab === 'tests'
+            className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold transition-all duration-200 ${activeTab === 'tests'
                 ? 'bg-accent-500/15 text-accent-400 shadow-glow'
                 : 'text-dark-400 hover:text-dark-200 hover:bg-dark-700/50'
-            }`}
+              }`}
           >
             <HiOutlineChartBar className="w-4.5 h-4.5" />
             Tests
@@ -325,11 +323,10 @@ const Export = () => {
                 <button
                   id="mode-athlete"
                   onClick={() => setTestMode('athlete')}
-                  className={`p-3.5 rounded-xl border-2 transition-all flex flex-col items-center gap-2 ${
-                    testMode === 'athlete'
+                  className={`p-3.5 rounded-xl border-2 transition-all flex flex-col items-center gap-2 ${testMode === 'athlete'
                       ? 'border-accent-500 bg-accent-500/10 text-accent-400'
                       : 'border-dark-600 bg-dark-700/50 text-dark-400 hover:border-dark-500'
-                  }`}
+                    }`}
                 >
                   <HiOutlineUser className="w-6 h-6" />
                   <span className="text-sm font-medium">Single Athlete</span>
@@ -338,11 +335,10 @@ const Export = () => {
                 <button
                   id="mode-test"
                   onClick={() => setTestMode('test')}
-                  className={`p-3.5 rounded-xl border-2 transition-all flex flex-col items-center gap-2 ${
-                    testMode === 'test'
+                  className={`p-3.5 rounded-xl border-2 transition-all flex flex-col items-center gap-2 ${testMode === 'test'
                       ? 'border-accent-500 bg-accent-500/10 text-accent-400'
                       : 'border-dark-600 bg-dark-700/50 text-dark-400 hover:border-dark-500'
-                  }`}
+                    }`}
                 >
                   <HiOutlineBeaker className="w-6 h-6" />
                   <span className="text-sm font-medium">By Test</span>
@@ -414,11 +410,10 @@ const Export = () => {
                           <label
                             key={t._id}
                             htmlFor={`test-check-${t._id}`}
-                            className={`flex items-center gap-3 p-2.5 rounded-xl cursor-pointer transition-all border-2 ${
-                              isSelected
+                            className={`flex items-center gap-3 p-2.5 rounded-xl cursor-pointer transition-all border-2 ${isSelected
                                 ? 'border-accent-500/50 bg-accent-500/8 text-dark-100'
                                 : 'border-transparent bg-dark-700/40 text-dark-400 hover:bg-dark-700/70 hover:text-dark-300'
-                            }`}
+                              }`}
                           >
                             <input
                               id={`test-check-${t._id}`}
@@ -433,11 +428,10 @@ const Export = () => {
                               }}
                               className="sr-only"
                             />
-                            <div className={`w-4.5 h-4.5 rounded-md border-2 flex items-center justify-center transition-all flex-shrink-0 ${
-                              isSelected
+                            <div className={`w-4.5 h-4.5 rounded-md border-2 flex items-center justify-center transition-all flex-shrink-0 ${isSelected
                                 ? 'border-accent-500 bg-accent-500'
                                 : 'border-dark-500 bg-dark-700'
-                            }`}>
+                              }`}>
                               {isSelected && (
                                 <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
@@ -469,11 +463,10 @@ const Export = () => {
                     key={opt.value}
                     id={`period-${opt.value}`}
                     onClick={() => setPeriod(opt.value)}
-                    className={`py-2.5 px-3 rounded-xl text-xs font-semibold transition-all border-2 ${
-                      period === opt.value
+                    className={`py-2.5 px-3 rounded-xl text-xs font-semibold transition-all border-2 ${period === opt.value
                         ? 'border-accent-500 bg-accent-500/10 text-accent-400'
                         : 'border-dark-600 bg-dark-700/50 text-dark-400 hover:border-dark-500 hover:text-dark-300'
-                    }`}
+                      }`}
                   >
                     {opt.label}
                   </button>
@@ -518,11 +511,10 @@ const Export = () => {
             <button
               id="format-excel"
               onClick={() => setFormat('excel')}
-              className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center gap-2 ${
-                format === 'excel'
+              className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center gap-2 ${format === 'excel'
                   ? 'border-accent-500 bg-accent-500/10 text-accent-400'
                   : 'border-dark-600 bg-dark-700/50 text-dark-400 hover:border-dark-500'
-              }`}
+                }`}
             >
               <HiOutlineTableCells className="w-8 h-8" />
               <span className="text-sm font-medium">Excel</span>
@@ -531,11 +523,10 @@ const Export = () => {
             <button
               id="format-pdf"
               onClick={() => setFormat('pdf')}
-              className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center gap-2 ${
-                format === 'pdf'
+              className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center gap-2 ${format === 'pdf'
                   ? 'border-accent-500 bg-accent-500/10 text-accent-400'
                   : 'border-dark-600 bg-dark-700/50 text-dark-400 hover:border-dark-500'
-              }`}
+                }`}
             >
               <HiOutlineDocumentText className="w-8 h-8" />
               <span className="text-sm font-medium">PDF</span>

@@ -589,7 +589,7 @@ const generateMultiTestTypeReportPdf = (allTestData) => {
 
 
   // ── Render each test type section ──
-  allTestData.forEach(({ testType, results, athletes, startDate: sd, endDate: ed }, sectionIdx) => {
+  allTestData.forEach(({ testType, results, athletes, startDate: sd, endDate: ed, previousResultsByAthlete }, sectionIdx) => {
     if (sectionIdx > 0) {
       doc.addPage();
     }
@@ -662,8 +662,8 @@ const generateMultiTestTypeReportPdf = (allTestData) => {
 
     // ── Table ──
     const colWidths = {
-      name: 105, previous: 80, latest: 80,
-      prevAvg: 80, avgPace: 80, improvement: 60, latestDate: 70,
+      name: 95, previous: 68, prevAvg: 62,
+      latest: 68, avgPace: 64, improvement: 50, latestDate: 60, prevDate: 60,
     };
 
     let tableY = doc.y;
@@ -685,6 +685,8 @@ const generateMultiTestTypeReportPdf = (allTestData) => {
     doc.text('Change', tx, tableY + 7, { width: colWidths.improvement, align: 'center' });
     tx += colWidths.improvement;
     doc.text('Last Test', tx, tableY + 7, { width: colWidths.latestDate, align: 'center' });
+    tx += colWidths.latestDate;
+    doc.text('Prev Date', tx, tableY + 7, { width: colWidths.prevDate, align: 'center' });
 
     tableY += 22;
 
@@ -721,6 +723,8 @@ const generateMultiTestTypeReportPdf = (allTestData) => {
         doc.text('-', tx, tableY + 7, { width: colWidths.improvement, align: 'center' });
         tx += colWidths.improvement;
         doc.text('-', tx, tableY + 7, { width: colWidths.latestDate, align: 'center' });
+        tx += colWidths.latestDate;
+        doc.text('-', tx, tableY + 7, { width: colWidths.prevDate, align: 'center' });
       } else {
         const sorted = [...athleteResults].sort((a, b) => new Date(a.date) - new Date(b.date));
         const paces = sorted.map(r => {
@@ -732,16 +736,30 @@ const generateMultiTestTypeReportPdf = (allTestData) => {
 
         const latest = paces[paces.length - 1];
         const avg = paces.reduce((a, b) => a + b, 0) / paces.length;
-        const first = paces[0];
-        const improvement = first !== 0
+
+        // ── Previous results: those fetched before the selected period ──
+        // prevResults is sorted desc (most recent first) by the server query
+        const prevResults = (previousResultsByAthlete && previousResultsByAthlete[athlete._id.toString()]) || [];
+        const prevSorted = [...prevResults].sort((a, b) => new Date(a.date) - new Date(b.date));
+
+        const prevPaces = prevSorted.map(r => {
+          if (category === 'Running') return (r.time / 60) / (r.distance / 1000);
+          if (category === 'Swimming') return (r.time / 60) / (r.distance / 100);
+          if (category === 'Cycling') return (r.distance / 1000) / (r.time / 3600);
+          return r.time;
+        });
+
+        // Change: compare most-recent pre-period pace vs latest in-period pace
+        // If no pre-period results, fall back to first vs latest within period
+        const baselinePace = prevPaces.length > 0 ? prevPaces[prevPaces.length - 1] : paces[0];
+        const improvement = baselinePace !== 0
           ? (isLowerBetter
-              ? Math.round(((first - latest) / first) * 100)
-              : Math.round(((latest - first) / first) * 100))
+              ? Math.round(((baselinePace - latest) / baselinePace) * 100)
+              : Math.round(((latest - baselinePace) / baselinePace) * 100))
           : 0;
 
-        // Previous average (all results except the latest)
-        const prevPaces = paces.slice(0, -1);
-        const prevAvg = prevPaces.length > 0
+        // Previous avg pace (all pre-period results)
+        const prevAvgPace = prevPaces.length > 0
           ? prevPaces.reduce((a, b) => a + b, 0) / prevPaces.length
           : null;
 
@@ -754,21 +772,21 @@ const generateMultiTestTypeReportPdf = (allTestData) => {
           return v.toFixed(2);
         };
 
-        // Previous result (second-to-last actual time)
-        if (sorted.length >= 2) {
-          const prevResult = sorted[sorted.length - 2];
+        // Previous result column: most recent pre-period actual time
+        const mostRecentPrev = prevSorted.length > 0 ? prevSorted[prevSorted.length - 1] : null;
+        if (mostRecentPrev) {
           doc.fontSize(7).font('Helvetica').fillColor(C.subtitle);
-          doc.text(formatTime(prevResult.time), tx, tableY + 7, { width: colWidths.previous, align: 'center' });
+          doc.text(formatTime(mostRecentPrev.time), tx, tableY + 7, { width: colWidths.previous, align: 'center' });
         } else {
           doc.fontSize(7).font('Helvetica').fillColor(C.muted);
           doc.text('-', tx, tableY + 7, { width: colWidths.previous, align: 'center' });
         }
         tx += colWidths.previous;
 
-        // Previous average pace
-        if (prevAvg !== null) {
+        // Previous average pace column
+        if (prevAvgPace !== null) {
           doc.fontSize(7).font('Helvetica').fillColor(C.subtitle);
-          doc.text(fmtPace(prevAvg), tx, tableY + 7, { width: colWidths.prevAvg, align: 'center' });
+          doc.text(fmtPace(prevAvgPace), tx, tableY + 7, { width: colWidths.prevAvg, align: 'center' });
         } else {
           doc.fontSize(7).font('Helvetica').fillColor(C.muted);
           doc.text('-', tx, tableY + 7, { width: colWidths.prevAvg, align: 'center' });
@@ -781,7 +799,7 @@ const generateMultiTestTypeReportPdf = (allTestData) => {
         doc.text(formatTime(latestResult.time), tx, tableY + 7, { width: colWidths.latest, align: 'center' });
         tx += colWidths.latest;
 
-        // Avg pace (all results)
+        // Avg pace (in-period results)
         doc.font('Helvetica').fillColor(C.subtitle);
         doc.text(fmtPace(avg), tx, tableY + 7, { width: colWidths.avgPace, align: 'center' });
         tx += colWidths.avgPace;
@@ -796,6 +814,17 @@ const generateMultiTestTypeReportPdf = (allTestData) => {
         const lastDate = new Date(sorted[sorted.length - 1].date);
         doc.font('Helvetica').fillColor(C.subtitle);
         doc.text(lastDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), tx, tableY + 7, { width: colWidths.latestDate, align: 'center' });
+        tx += colWidths.latestDate;
+
+        // Prev test date
+        if (mostRecentPrev) {
+          const prevDate = new Date(mostRecentPrev.date);
+          doc.font('Helvetica').fillColor(C.muted);
+          doc.text(prevDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), tx, tableY + 7, { width: colWidths.prevDate, align: 'center' });
+        } else {
+          doc.font('Helvetica').fillColor(C.muted);
+          doc.text('-', tx, tableY + 7, { width: colWidths.prevDate, align: 'center' });
+        }
       }
 
       tableY += 22;

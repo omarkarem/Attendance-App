@@ -269,7 +269,23 @@ router.get('/tests', async (req, res) => {
             coach: req.user._id
           }).sort({ name: 1 });
 
-          allTestData.push({ testType, results, athletes, startDate, endDate });
+          // Fetch all results BEFORE the selected period so the PDF can show the
+          // true "Previous" result regardless of the time window chosen.
+          const prevResultsRaw = await TestResult.find({
+            coach: req.user._id,
+            testType: testType._id,
+            athlete: { $in: athleteIdsWithResults },
+            date: { $lt: startDate }
+          }).sort({ date: -1 });
+
+          const previousResultsByAthlete = {};
+          prevResultsRaw.forEach(r => {
+            const aId = (r.athlete?._id || r.athlete)?.toString();
+            if (!previousResultsByAthlete[aId]) previousResultsByAthlete[aId] = [];
+            previousResultsByAthlete[aId].push(r);
+          });
+
+          allTestData.push({ testType, results, athletes, startDate, endDate, previousResultsByAthlete });
         }
 
         const safeNames = fetchedTestTypes.map(t => t.title.replace(/[^a-zA-Z0-9]/g, '_'));
