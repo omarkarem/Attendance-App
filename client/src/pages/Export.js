@@ -44,7 +44,7 @@ const Export = () => {
   // ── Tests State ──
   const [testMode, setTestMode] = useState('athlete'); // 'athlete' or 'test'
   const [selectedAthlete, setSelectedAthlete] = useState('');
-  const [selectedTestType, setSelectedTestType] = useState('');
+  const [selectedTestTypes, setSelectedTestTypes] = useState([]);
   const [period, setPeriod] = useState('1m');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
@@ -82,8 +82,8 @@ const Export = () => {
         if (athletesRes.data.length > 0 && !selectedAthlete) {
           setSelectedAthlete(athletesRes.data[0]._id);
         }
-        if (typesRes.data.length > 0 && !selectedTestType) {
-          setSelectedTestType(typesRes.data[0]._id);
+        if (typesRes.data.length > 0 && selectedTestTypes.length === 0) {
+          setSelectedTestTypes([typesRes.data[0]._id]);
         }
       } catch (error) {
         // Silently fail
@@ -129,8 +129,8 @@ const Export = () => {
       toast.error('Please select an athlete.');
       return;
     }
-    if (testMode === 'test' && !selectedTestType) {
-      toast.error('Please select a test type.');
+    if (testMode === 'test' && selectedTestTypes.length === 0) {
+      toast.error('Please select at least one test type.');
       return;
     }
     if (period === 'custom' && (!customStart || !customEnd)) {
@@ -143,7 +143,7 @@ const Export = () => {
       const params = new URLSearchParams({ mode: testMode, format, period });
 
       if (testMode === 'athlete') params.append('athleteId', selectedAthlete);
-      if (testMode === 'test') params.append('testTypeId', selectedTestType);
+      if (testMode === 'test') params.append('testTypeIds', selectedTestTypes.join(','));
       if (period === 'custom') {
         params.append('startDate', customStart);
         params.append('endDate', customEnd);
@@ -161,8 +161,13 @@ const Export = () => {
         const athlete = athletes.find(a => a._id === selectedAthlete);
         filename = `Tests_${athlete?.name || 'Athlete'}.${format === 'excel' ? 'xlsx' : 'pdf'}`;
       } else {
-        const testType = testTypes.find(t => t._id === selectedTestType);
-        filename = `TestReport_${testType?.title || 'Test'}.${format === 'excel' ? 'xlsx' : 'pdf'}`;
+        const selectedNames = selectedTestTypes
+          .map(id => testTypes.find(t => t._id === id)?.title || 'Test')
+          .join('_');
+        const displayName = selectedTestTypes.length > 2
+          ? `${selectedTestTypes.length}_Tests`
+          : selectedNames;
+        filename = `TestReport_${displayName}.${format === 'excel' ? 'xlsx' : 'pdf'}`;
       }
       link.download = filename;
 
@@ -198,9 +203,13 @@ const Export = () => {
       const periodLabel = periodOptions.find(p => p.value === period)?.label || period;
       return `${athlete?.name || 'Athlete'} • ${periodLabel} • ${format.toUpperCase()}`;
     }
-    const testType = testTypes.find(t => t._id === selectedTestType);
     const periodLabel = periodOptions.find(p => p.value === period)?.label || period;
-    return `${testType?.title || 'Test'} • ${periodLabel} • ${format.toUpperCase()}`;
+    if (selectedTestTypes.length === 0) return `No tests selected • ${periodLabel} • ${format.toUpperCase()}`;
+    if (selectedTestTypes.length === 1) {
+      const testType = testTypes.find(t => t._id === selectedTestTypes[0]);
+      return `${testType?.title || 'Test'} • ${periodLabel} • ${format.toUpperCase()}`;
+    }
+    return `${selectedTestTypes.length} tests selected • ${periodLabel} • ${format.toUpperCase()}`;
   };
 
   return (
@@ -337,7 +346,7 @@ const Export = () => {
                 >
                   <HiOutlineBeaker className="w-6 h-6" />
                   <span className="text-sm font-medium">By Test</span>
-                  <span className="text-[10px] text-dark-500 leading-tight text-center">All athletes for one test</span>
+                  <span className="text-[10px] text-dark-500 leading-tight text-center">All athletes for selected tests</span>
                 </button>
               </div>
             </div>
@@ -364,21 +373,86 @@ const Export = () => {
                 </>
               ) : (
                 <>
-                  <h2 className="text-sm font-semibold text-dark-300 mb-4 flex items-center gap-2">
+                  <h2 className="text-sm font-semibold text-dark-300 mb-3 flex items-center gap-2">
                     <HiOutlineBeaker className="w-4 h-4 text-accent-400" />
-                    Select Test Type
+                    Select Test Types
+                    {selectedTestTypes.length > 0 && (
+                      <span className="ml-auto text-xs font-normal text-accent-400 bg-accent-500/10 px-2 py-0.5 rounded-full">
+                        {selectedTestTypes.length} selected
+                      </span>
+                    )}
                   </h2>
-                  <select
-                    id="export-test-type"
-                    value={selectedTestType}
-                    onChange={(e) => setSelectedTestType(e.target.value)}
-                    className="w-full"
-                  >
-                    {testTypes.length === 0 && <option value="">No test types found</option>}
-                    {testTypes.map(t => (
-                      <option key={t._id} value={t._id}>{t.title} ({t.category})</option>
-                    ))}
-                  </select>
+
+                  {/* Select All / Deselect All */}
+                  <div className="flex gap-2 mb-3">
+                    <button
+                      id="select-all-tests"
+                      type="button"
+                      onClick={() => setSelectedTestTypes(testTypes.map(t => t._id))}
+                      className="text-[11px] text-accent-400 hover:text-accent-300 font-medium transition-colors"
+                    >
+                      Select All
+                    </button>
+                    <span className="text-dark-600">•</span>
+                    <button
+                      id="deselect-all-tests"
+                      type="button"
+                      onClick={() => setSelectedTestTypes([])}
+                      className="text-[11px] text-dark-500 hover:text-dark-300 font-medium transition-colors"
+                    >
+                      Deselect All
+                    </button>
+                  </div>
+
+                  {testTypes.length === 0 ? (
+                    <p className="text-sm text-dark-500 text-center py-4">No test types found</p>
+                  ) : (
+                    <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1 custom-scrollbar">
+                      {testTypes.map(t => {
+                        const isSelected = selectedTestTypes.includes(t._id);
+                        return (
+                          <label
+                            key={t._id}
+                            htmlFor={`test-check-${t._id}`}
+                            className={`flex items-center gap-3 p-2.5 rounded-xl cursor-pointer transition-all border-2 ${
+                              isSelected
+                                ? 'border-accent-500/50 bg-accent-500/8 text-dark-100'
+                                : 'border-transparent bg-dark-700/40 text-dark-400 hover:bg-dark-700/70 hover:text-dark-300'
+                            }`}
+                          >
+                            <input
+                              id={`test-check-${t._id}`}
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => {
+                                setSelectedTestTypes(prev =>
+                                  prev.includes(t._id)
+                                    ? prev.filter(id => id !== t._id)
+                                    : [...prev, t._id]
+                                );
+                              }}
+                              className="sr-only"
+                            />
+                            <div className={`w-4.5 h-4.5 rounded-md border-2 flex items-center justify-center transition-all flex-shrink-0 ${
+                              isSelected
+                                ? 'border-accent-500 bg-accent-500'
+                                : 'border-dark-500 bg-dark-700'
+                            }`}>
+                              {isSelected && (
+                                <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                </svg>
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <span className="text-sm font-medium block truncate">{t.title}</span>
+                              <span className="text-[10px] text-dark-500">{t.category}</span>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
                 </>
               )}
             </div>
