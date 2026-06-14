@@ -97,7 +97,7 @@ router.get('/', async (req, res) => {
 // ────────────────────────────────────────────────
 router.get('/tests', async (req, res) => {
   try {
-    const { mode, athleteId, testTypeId, period, startDate: startStr, endDate: endStr, format } = req.query;
+    const { mode, athleteId, testTypeId, testTypeIds, period, startDate: startStr, endDate: endStr, format } = req.query;
 
     if (!mode || !format) {
       return res.status(400).json({ message: 'Mode and format are required.' });
@@ -107,8 +107,17 @@ router.get('/tests', async (req, res) => {
       return res.status(400).json({ message: 'athleteId is required for athlete mode.' });
     }
 
-    if (mode === 'test' && !testTypeId) {
-      return res.status(400).json({ message: 'testTypeId is required for test mode.' });
+    // Support both testTypeIds (comma-separated) and legacy testTypeId (single)
+    let testTypeIdList = [];
+    if (mode === 'test') {
+      if (testTypeIds) {
+        testTypeIdList = testTypeIds.split(',').filter(id => id.trim());
+      } else if (testTypeId) {
+        testTypeIdList = [testTypeId];
+      }
+      if (testTypeIdList.length === 0) {
+        return res.status(400).json({ message: 'At least one testTypeId is required for test mode.' });
+      }
     }
 
     // ── Compute date range ──
@@ -191,48 +200,102 @@ router.get('/tests', async (req, res) => {
       }
     }
 
-    // ── Mode: All Athletes for a Specific Test ──
+    // ── Mode: All Athletes for Selected Test(s) ──
     else if (mode === 'test') {
-      const testType = await TestType.findOne({ _id: testTypeId, coach: req.user._id });
-      if (!testType) {
-        return res.status(404).json({ message: 'Test type not found.' });
+      // Fetch all selected test types
+      const fetchedTestTypes = await TestType.find({
+        _id: { $in: testTypeIdList },
+        coach: req.user._id
+      });
+
+      if (fetchedTestTypes.length === 0) {
+        return res.status(404).json({ message: 'No matching test types found.' });
       }
 
-      const results = await TestResult.find({
-        coach: req.user._id,
-        testType: testTypeId,
-        date: { $gte: startDate, $lte: endDate }
-      })
-        .populate('athlete', 'name')
-        .sort({ date: -1 });
+      // For a single test type, use the original single-report generators
+      if (fetchedTestTypes.length === 1) {
+        const testType = fetchedTestTypes[0];
 
-      // Only include athletes who actually have results for this test
-      const athleteIdsWithResults = [...new Set(results.map(r => (r.athlete?._id || r.athlete)?.toString()))];
-      const athletes = await Athlete.find({
-        _id: { $in: athleteIdsWithResults },
-        coach: req.user._id
-      }).sort({ name: 1 });
+        const results = await TestResult.find({
+          coach: req.user._id,
+          testType: testType._id,
+          date: { $gte: startDate, $lte: endDate }
+        })
+          .populate('athlete', 'name')
+          .sort({ date: -1 });
 
-      const data = { testType, results, athletes, startDate, endDate };
+        const athleteIdsWithResults = [...new Set(results.map(r => (r.athlete?._id || r.athlete)?.toString()))];
+        const athletes = await Athlete.find({
+          _id: { $in: athleteIdsWithResults },
+          coach: req.user._id
+        }).sort({ name: 1 });
 
-      const safeName = testType.title.replace(/[^a-zA-Z0-9]/g, '_');
+        const data = { testType, results, athletes, startDate, endDate };
+        const safeName = testType.title.replace(/[^a-zA-Z0-9]/g, '_');
 
-      if (format === 'excel') {
-        const workbook = await generateTestTypeReportExcel(data);
-        const filename = `TestReport_${safeName}.xlsx`;
-        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-        await workbook.xlsx.write(res);
-        res.end();
-      } else if (format === 'pdf') {
-        const filename = `TestReport_${safeName}.pdf`;
-        res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-        const doc = generateTestTypeReportPdf(data);
-        doc.pipe(res);
-        doc.end();
-      } else {
-        res.status(400).json({ message: 'Invalid format.' });
+        if (format === 'excel') {
+          const workbook = await generateTestTypeReportExcel(data);
+          const filename = `TestReport_${safeName}.xlsx`;
+          res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+          res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+          await workbook.xlsx.write(res);
+          res.end();
+        } else if (format === 'pdf') {
+          const filename = `TestReport_${safeName}.pdf`;
+          res.setHeader('Content-Type', 'application/pdf');
+          res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+          const doc = generateTestTypeReportPdf(data);
+          doc.pipe(res);
+          doc.end();
+        } else {
+          res.status(400).json({ message: 'Invalid format.' });
+        }
+      }
+      // For multiple test types, build a combined report with one section per test
+      else {
+        const allTestData = [];
+        for (const testType of fetchedTestTypes) {
+          const results = await TestResult.find({
+            coach: req.user._id,
+            testType: testType._id,
+            date: { $gte: startDate, $lte: endDate }
+          })
+            .populate('athlete', 'name')
+            .sort({ date: -1 });
+
+          const athleteIdsWithResults = [...new Set(results.map(r => (r.athlete?._id || r.athlete)?.toString()))];
+          const athletes = await Athlete.find({
+            _id: { $in: athleteIdsWithResults },
+            coach: req.user._id
+          }).sort({ name: 1 });
+
+          allTestData.push({ testType, results, athletes, startDate, endDate });
+        }
+
+        const safeNames = fetchedTestTypes.map(t => t.title.replace(/[^a-zA-Z0-9]/g, '_'));
+        const displayName = fetchedTestTypes.length > 2
+          ? `${fetchedTestTypes.length}_Tests`
+          : safeNames.join('_');
+
+        if (format === 'excel') {
+          const { generateMultiTestTypeReportExcel } = require('../utils/exportTestExcel');
+          const workbook = await generateMultiTestTypeReportExcel(allTestData);
+          const filename = `TestReport_${displayName}.xlsx`;
+          res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+          res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+          await workbook.xlsx.write(res);
+          res.end();
+        } else if (format === 'pdf') {
+          const { generateMultiTestTypeReportPdf } = require('../utils/exportTestPdf');
+          const filename = `TestReport_${displayName}.pdf`;
+          res.setHeader('Content-Type', 'application/pdf');
+          res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+          const doc = generateMultiTestTypeReportPdf(allTestData);
+          doc.pipe(res);
+          doc.end();
+        } else {
+          res.status(400).json({ message: 'Invalid format.' });
+        }
       }
     } else {
       res.status(400).json({ message: 'Invalid mode. Use "athlete" or "test".' });
@@ -244,3 +307,4 @@ router.get('/tests', async (req, res) => {
 });
 
 module.exports = router;
+

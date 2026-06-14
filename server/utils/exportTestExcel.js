@@ -289,4 +289,106 @@ const generateTestTypeReportExcel = async (data) => {
 };
 
 
-module.exports = { generateAthleteTestExcel, generateTestTypeReportExcel };
+// ═══════════════════════════════════════════
+// MODE 3: Multiple Test Types — one sheet per test
+// ═══════════════════════════════════════════
+
+const generateMultiTestTypeReportExcel = async (allTestData) => {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'AttendTrack';
+  workbook.created = new Date();
+
+  for (const { testType, results, athletes } of allTestData) {
+    const category = testType.category;
+    const isLowerBetter = category === 'Running' || category === 'Swimming';
+    const paceUnit = category === 'Running' ? 'min/km' : category === 'Swimming' ? 'min/100m' : category === 'Cycling' ? 'km/h' : 's';
+
+    const sheetName = `${testType.title}`.substring(0, 31);
+    const sheet = workbook.addWorksheet(sheetName, {
+      views: [{ state: 'frozen', xSplit: 1, ySplit: 1 }]
+    });
+
+    sheet.columns = [
+      { header: 'Athlete', key: 'athlete', width: 22 },
+      { header: 'Tests', key: 'tests', width: 10 },
+      { header: `Best (${paceUnit})`, key: 'best', width: 16 },
+      { header: `Latest (${paceUnit})`, key: 'latest', width: 16 },
+      { header: `Avg (${paceUnit})`, key: 'avg', width: 16 },
+      { header: 'Change', key: 'change', width: 12 },
+      { header: 'Last Test Date', key: 'lastDate', width: 16 },
+    ];
+
+    // Style header
+    const headerRow = sheet.getRow(1);
+    headerRow.font = headerFont;
+    headerRow.fill = headerFill;
+    headerRow.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+    headerRow.height = 30;
+
+    // Group results by athlete
+    const resultsByAthlete = {};
+    results.forEach(r => {
+      const aId = (r.athlete?._id || r.athlete)?.toString();
+      if (!resultsByAthlete[aId]) resultsByAthlete[aId] = [];
+      resultsByAthlete[aId].push(r);
+    });
+
+    athletes.forEach((athlete, idx) => {
+      const athleteResults = resultsByAthlete[athlete._id.toString()] || [];
+
+      if (athleteResults.length === 0) {
+        const row = sheet.addRow({
+          athlete: athlete.name,
+          tests: 0,
+          best: '-', latest: '-', avg: '-', change: '-', lastDate: '-'
+        });
+        if (idx % 2 === 0) row.fill = rowEvenFill;
+        row.font = { color: { argb: 'FF94a3b8' } };
+      } else {
+        const sorted = [...athleteResults].sort((a, b) => new Date(a.date) - new Date(b.date));
+        const paces = sorted.map(r => computePace(r.distance, r.time, category));
+
+        const best = isLowerBetter ? Math.min(...paces) : Math.max(...paces);
+        const latest = paces[paces.length - 1];
+        const avg = paces.reduce((a, b) => a + b, 0) / paces.length;
+        const first = paces[0];
+        const improvement = first !== 0
+          ? (isLowerBetter
+              ? Math.round(((first - latest) / first) * 100)
+              : Math.round(((latest - first) / first) * 100))
+          : 0;
+
+        const row = sheet.addRow({
+          athlete: athlete.name,
+          tests: athleteResults.length,
+          best: formatPaceValue(best, category),
+          latest: formatPaceValue(latest, category),
+          avg: formatPaceValue(avg, category),
+          change: `${improvement >= 0 ? '+' : ''}${improvement}%`,
+          lastDate: new Date(sorted[sorted.length - 1].date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+        });
+
+        if (idx % 2 === 0) row.fill = rowEvenFill;
+
+        row.getCell('best').font = greenFont;
+        row.getCell('change').font = improvement >= 0 ? greenFont : redFont;
+        row.getCell('tests').alignment = { horizontal: 'center' };
+        row.getCell('best').alignment = { horizontal: 'center' };
+        row.getCell('latest').alignment = { horizontal: 'center' };
+        row.getCell('avg').alignment = { horizontal: 'center' };
+        row.getCell('change').alignment = { horizontal: 'center' };
+        row.getCell('lastDate').alignment = { horizontal: 'center' };
+      }
+    });
+
+    // Borders
+    sheet.eachRow(row => {
+      row.eachCell(cell => { cell.border = cellBorder; });
+    });
+  }
+
+  return workbook;
+};
+
+
+module.exports = { generateAthleteTestExcel, generateTestTypeReportExcel, generateMultiTestTypeReportExcel };
