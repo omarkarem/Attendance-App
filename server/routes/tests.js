@@ -144,13 +144,15 @@ router.get('/results', async (req, res) => {
 // POST /api/tests/results - Record a new test result
 router.post('/results', async (req, res) => {
   try {
-    const { athleteId, testTypeId, date, distance, time, description } = req.body;
+    const { athleteId, testTypeId, date, distance, time, description,
+            avgPower, maxPower, avgCadence, maxCadence,
+            avgHeartRate, maxHeartRate, weight } = req.body;
 
     if (!athleteId || !testTypeId || distance === undefined || time === undefined) {
       return res.status(400).json({ message: 'Athlete, test type, distance, and time are required.' });
     }
 
-    const result = await TestResult.create({
+    const resultData = {
       athlete: athleteId,
       testType: testTypeId,
       date: date || new Date(),
@@ -158,7 +160,15 @@ router.post('/results', async (req, res) => {
       time,
       description: description ? description.trim() : '',
       coach: req.user._id
+    };
+
+    // Add cycling fields if provided
+    const cyclingFields = { avgPower, maxPower, avgCadence, maxCadence, avgHeartRate, maxHeartRate, weight };
+    Object.entries(cyclingFields).forEach(([key, val]) => {
+      if (val !== undefined && val !== null && val !== '') resultData[key] = val;
     });
+
+    const result = await TestResult.create(resultData);
 
     // Populate for the response so frontend can show it immediately
     const populatedResult = await TestResult.findById(result._id)
@@ -174,22 +184,32 @@ router.post('/results', async (req, res) => {
 // PUT /api/tests/results/:id - Update a test result
 router.put('/results/:id', async (req, res) => {
   try {
-    const { athleteId, testTypeId, date, distance, time, description } = req.body;
+    const { athleteId, testTypeId, date, distance, time, description,
+            avgPower, maxPower, avgCadence, maxCadence,
+            avgHeartRate, maxHeartRate, weight } = req.body;
 
     if (!athleteId || !testTypeId || distance === undefined || time === undefined) {
       return res.status(400).json({ message: 'Athlete, test type, distance, and time are required.' });
     }
 
+    const updateData = {
+      athlete: athleteId,
+      testType: testTypeId,
+      date: date || new Date(),
+      distance,
+      time,
+      description: description ? description.trim() : ''
+    };
+
+    // Update cycling fields (set to null if cleared)
+    const cyclingFields = { avgPower, maxPower, avgCadence, maxCadence, avgHeartRate, maxHeartRate, weight };
+    Object.entries(cyclingFields).forEach(([key, val]) => {
+      updateData[key] = (val !== undefined && val !== null && val !== '') ? val : null;
+    });
+
     const result = await TestResult.findOneAndUpdate(
       { _id: req.params.id, coach: req.user._id },
-      {
-        athlete: athleteId,
-        testType: testTypeId,
-        date: date || new Date(),
-        distance,
-        time,
-        description: description ? description.trim() : ''
-      },
+      updateData,
       { new: true }
     );
 

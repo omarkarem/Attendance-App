@@ -661,10 +661,12 @@ const generateMultiTestTypeReportPdf = (allTestData) => {
     });
 
     // ── Table ──
-    const colWidths = {
-      name: 95, previous: 68, prevAvg: 62,
-      latest: 68, avgPace: 64, improvement: 50, latestDate: 60, prevDate: 60,
-    };
+    const isCycling = category === 'Cycling';
+
+    // Different column layouts for cycling vs. other
+    const colWidths = isCycling
+      ? { name: 90, avgSpeed: 55, avgPower: 55, avgCadence: 50, avgHR: 45, wkg: 45, improvement: 48, latestDate: 55, prevDate: 55 }
+      : { name: 95, previous: 68, prevAvg: 62, latest: 68, avgPace: 64, improvement: 50, latestDate: 60, prevDate: 60 };
 
     let tableY = doc.y;
     let tx = 30;
@@ -672,21 +674,41 @@ const generateMultiTestTypeReportPdf = (allTestData) => {
     doc.rect(tx, tableY, doc.page.width - 60, 22).fill(C.headerBg);
     doc.fontSize(7).font('Helvetica-Bold').fillColor(C.headerText);
 
-    doc.text('Athlete', tx + 5, tableY + 7, { width: colWidths.name });
-    tx += colWidths.name;
-    doc.text('Previous', tx, tableY + 7, { width: colWidths.previous, align: 'center' });
-    tx += colWidths.previous;
-    doc.text('Prev Avg', tx, tableY + 7, { width: colWidths.prevAvg, align: 'center' });
-    tx += colWidths.prevAvg;
-    doc.text('Latest', tx, tableY + 7, { width: colWidths.latest, align: 'center' });
-    tx += colWidths.latest;
-    doc.text(`Avg (${paceUnit})`, tx, tableY + 7, { width: colWidths.avgPace, align: 'center' });
-    tx += colWidths.avgPace;
-    doc.text('Change', tx, tableY + 7, { width: colWidths.improvement, align: 'center' });
-    tx += colWidths.improvement;
-    doc.text('Last Test', tx, tableY + 7, { width: colWidths.latestDate, align: 'center' });
-    tx += colWidths.latestDate;
-    doc.text('Prev Date', tx, tableY + 7, { width: colWidths.prevDate, align: 'center' });
+    if (isCycling) {
+      doc.text('Athlete', tx + 5, tableY + 7, { width: colWidths.name });
+      tx += colWidths.name;
+      doc.text('Avg Speed', tx, tableY + 7, { width: colWidths.avgSpeed, align: 'center' });
+      tx += colWidths.avgSpeed;
+      doc.text('Avg Power', tx, tableY + 7, { width: colWidths.avgPower, align: 'center' });
+      tx += colWidths.avgPower;
+      doc.text('Cadence', tx, tableY + 7, { width: colWidths.avgCadence, align: 'center' });
+      tx += colWidths.avgCadence;
+      doc.text('Avg HR', tx, tableY + 7, { width: colWidths.avgHR, align: 'center' });
+      tx += colWidths.avgHR;
+      doc.text('W/kg', tx, tableY + 7, { width: colWidths.wkg, align: 'center' });
+      tx += colWidths.wkg;
+      doc.text('Change', tx, tableY + 7, { width: colWidths.improvement, align: 'center' });
+      tx += colWidths.improvement;
+      doc.text('Last Test', tx, tableY + 7, { width: colWidths.latestDate, align: 'center' });
+      tx += colWidths.latestDate;
+      doc.text('Prev Date', tx, tableY + 7, { width: colWidths.prevDate, align: 'center' });
+    } else {
+      doc.text('Athlete', tx + 5, tableY + 7, { width: colWidths.name });
+      tx += colWidths.name;
+      doc.text('Previous', tx, tableY + 7, { width: colWidths.previous, align: 'center' });
+      tx += colWidths.previous;
+      doc.text('Prev Avg', tx, tableY + 7, { width: colWidths.prevAvg, align: 'center' });
+      tx += colWidths.prevAvg;
+      doc.text('Latest', tx, tableY + 7, { width: colWidths.latest, align: 'center' });
+      tx += colWidths.latest;
+      doc.text(`Avg (${paceUnit})`, tx, tableY + 7, { width: colWidths.avgPace, align: 'center' });
+      tx += colWidths.avgPace;
+      doc.text('Change', tx, tableY + 7, { width: colWidths.improvement, align: 'center' });
+      tx += colWidths.improvement;
+      doc.text('Last Test', tx, tableY + 7, { width: colWidths.latestDate, align: 'center' });
+      tx += colWidths.latestDate;
+      doc.text('Prev Date', tx, tableY + 7, { width: colWidths.prevDate, align: 'center' });
+    }
 
     tableY += 22;
 
@@ -712,19 +734,37 @@ const generateMultiTestTypeReportPdf = (allTestData) => {
 
       if (athleteResults.length === 0) {
         doc.fontSize(7).font('Helvetica').fillColor(C.muted);
-        doc.text('-', tx, tableY + 7, { width: colWidths.previous, align: 'center' });
-        tx += colWidths.previous;
-        doc.text('-', tx, tableY + 7, { width: colWidths.prevAvg, align: 'center' });
-        tx += colWidths.prevAvg;
-        doc.text('-', tx, tableY + 7, { width: colWidths.latest, align: 'center' });
-        tx += colWidths.latest;
-        doc.text('-', tx, tableY + 7, { width: colWidths.avgPace, align: 'center' });
-        tx += colWidths.avgPace;
-        doc.text('-', tx, tableY + 7, { width: colWidths.improvement, align: 'center' });
-        tx += colWidths.improvement;
-        doc.text('-', tx, tableY + 7, { width: colWidths.latestDate, align: 'center' });
-        tx += colWidths.latestDate;
-        doc.text('-', tx, tableY + 7, { width: colWidths.prevDate, align: 'center' });
+        if (isCycling) {
+          doc.text('-', tx, tableY + 7, { width: colWidths.avgSpeed, align: 'center' });
+          tx += colWidths.avgSpeed;
+          doc.text('-', tx, tableY + 7, { width: colWidths.avgPower, align: 'center' });
+          tx += colWidths.avgPower;
+          doc.text('-', tx, tableY + 7, { width: colWidths.avgCadence, align: 'center' });
+          tx += colWidths.avgCadence;
+          doc.text('-', tx, tableY + 7, { width: colWidths.avgHR, align: 'center' });
+          tx += colWidths.avgHR;
+          doc.text('-', tx, tableY + 7, { width: colWidths.wkg, align: 'center' });
+          tx += colWidths.wkg;
+          doc.text('-', tx, tableY + 7, { width: colWidths.improvement, align: 'center' });
+          tx += colWidths.improvement;
+          doc.text('-', tx, tableY + 7, { width: colWidths.latestDate, align: 'center' });
+          tx += colWidths.latestDate;
+          doc.text('-', tx, tableY + 7, { width: colWidths.prevDate, align: 'center' });
+        } else {
+          doc.text('-', tx, tableY + 7, { width: colWidths.previous, align: 'center' });
+          tx += colWidths.previous;
+          doc.text('-', tx, tableY + 7, { width: colWidths.prevAvg, align: 'center' });
+          tx += colWidths.prevAvg;
+          doc.text('-', tx, tableY + 7, { width: colWidths.latest, align: 'center' });
+          tx += colWidths.latest;
+          doc.text('-', tx, tableY + 7, { width: colWidths.avgPace, align: 'center' });
+          tx += colWidths.avgPace;
+          doc.text('-', tx, tableY + 7, { width: colWidths.improvement, align: 'center' });
+          tx += colWidths.improvement;
+          doc.text('-', tx, tableY + 7, { width: colWidths.latestDate, align: 'center' });
+          tx += colWidths.latestDate;
+          doc.text('-', tx, tableY + 7, { width: colWidths.prevDate, align: 'center' });
+        }
       } else {
         const sorted = [...athleteResults].sort((a, b) => new Date(a.date) - new Date(b.date));
         const paces = sorted.map(r => {
@@ -738,7 +778,6 @@ const generateMultiTestTypeReportPdf = (allTestData) => {
         const avg = paces.reduce((a, b) => a + b, 0) / paces.length;
 
         // ── Previous results: those fetched before the selected period ──
-        // prevResults is sorted desc (most recent first) by the server query
         const prevResults = (previousResultsByAthlete && previousResultsByAthlete[athlete._id.toString()]) || [];
         const prevSorted = [...prevResults].sort((a, b) => new Date(a.date) - new Date(b.date));
 
@@ -749,19 +788,12 @@ const generateMultiTestTypeReportPdf = (allTestData) => {
           return r.time;
         });
 
-        // Change: compare most-recent pre-period pace vs latest in-period pace
-        // If no pre-period results, fall back to first vs latest within period
         const baselinePace = prevPaces.length > 0 ? prevPaces[prevPaces.length - 1] : paces[0];
         const improvement = baselinePace !== 0
           ? (isLowerBetter
               ? Math.round(((baselinePace - latest) / baselinePace) * 100)
               : Math.round(((latest - baselinePace) / baselinePace) * 100))
           : 0;
-
-        // Previous avg pace (all pre-period results)
-        const prevAvgPace = prevPaces.length > 0
-          ? prevPaces.reduce((a, b) => a + b, 0) / prevPaces.length
-          : null;
 
         const fmtPace = (v) => {
           if (category === 'Running' || category === 'Swimming') {
@@ -772,58 +804,125 @@ const generateMultiTestTypeReportPdf = (allTestData) => {
           return v.toFixed(2);
         };
 
-        // Previous result column: most recent pre-period actual time
         const mostRecentPrev = prevSorted.length > 0 ? prevSorted[prevSorted.length - 1] : null;
-        if (mostRecentPrev) {
-          doc.fontSize(7).font('Helvetica').fillColor(C.subtitle);
-          doc.text(formatTime(mostRecentPrev.time), tx, tableY + 7, { width: colWidths.previous, align: 'center' });
+
+        if (isCycling) {
+          // ── Cycling columns ──
+          const latestResult = sorted[sorted.length - 1];
+
+          // Avg Speed (km/h) — average across all results in period
+          doc.fontSize(7).font('Helvetica-Bold').fillColor(C.accent);
+          doc.text(fmtPace(avg), tx, tableY + 7, { width: colWidths.avgSpeed, align: 'center' });
+          tx += colWidths.avgSpeed;
+
+          // Avg Power (FTP)
+          const powers = sorted.filter(r => r.avgPower != null).map(r => r.avgPower);
+          const avgPowerVal = powers.length > 0 ? Math.round(powers.reduce((a, b) => a + b, 0) / powers.length) : null;
+          doc.font('Helvetica').fillColor(avgPowerVal ? C.primary : C.muted);
+          doc.text(avgPowerVal ? `${avgPowerVal}W` : '-', tx, tableY + 7, { width: colWidths.avgPower, align: 'center' });
+          tx += colWidths.avgPower;
+
+          // Avg Cadence
+          const cadences = sorted.filter(r => r.avgCadence != null).map(r => r.avgCadence);
+          const avgCadVal = cadences.length > 0 ? Math.round(cadences.reduce((a, b) => a + b, 0) / cadences.length) : null;
+          doc.fillColor(avgCadVal ? C.primary : C.muted);
+          doc.text(avgCadVal ? `${avgCadVal}` : '-', tx, tableY + 7, { width: colWidths.avgCadence, align: 'center' });
+          tx += colWidths.avgCadence;
+
+          // Avg HR
+          const hrs = sorted.filter(r => r.avgHeartRate != null).map(r => r.avgHeartRate);
+          const avgHRVal = hrs.length > 0 ? Math.round(hrs.reduce((a, b) => a + b, 0) / hrs.length) : null;
+          doc.fillColor(avgHRVal ? C.primary : C.muted);
+          doc.text(avgHRVal ? `${avgHRVal}` : '-', tx, tableY + 7, { width: colWidths.avgHR, align: 'center' });
+          tx += colWidths.avgHR;
+
+          // W/kg
+          const latestWeight = latestResult.weight;
+          const latestPower = latestResult.avgPower;
+          const wkg = (latestPower && latestWeight) ? (latestPower / latestWeight).toFixed(2) : null;
+          doc.font('Helvetica-Bold').fillColor(wkg ? C.green : C.muted);
+          doc.text(wkg || '-', tx, tableY + 7, { width: colWidths.wkg, align: 'center' });
+          tx += colWidths.wkg;
+
+          // Change
+          const impColor = improvement >= 0 ? C.green : C.red;
+          doc.font('Helvetica-Bold').fillColor(impColor);
+          doc.text(`${improvement >= 0 ? '+' : ''}${improvement}%`, tx, tableY + 7, { width: colWidths.improvement, align: 'center' });
+          tx += colWidths.improvement;
+
+          // Last test date
+          const lastDate = new Date(sorted[sorted.length - 1].date);
+          doc.font('Helvetica').fillColor(C.subtitle);
+          doc.text(lastDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), tx, tableY + 7, { width: colWidths.latestDate, align: 'center' });
+          tx += colWidths.latestDate;
+
+          // Prev date
+          if (mostRecentPrev) {
+            const prevDate = new Date(mostRecentPrev.date);
+            doc.font('Helvetica').fillColor(C.muted);
+            doc.text(prevDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), tx, tableY + 7, { width: colWidths.prevDate, align: 'center' });
+          } else {
+            doc.font('Helvetica').fillColor(C.muted);
+            doc.text('-', tx, tableY + 7, { width: colWidths.prevDate, align: 'center' });
+          }
         } else {
-          doc.fontSize(7).font('Helvetica').fillColor(C.muted);
-          doc.text('-', tx, tableY + 7, { width: colWidths.previous, align: 'center' });
-        }
-        tx += colWidths.previous;
+          // ── Non-cycling columns (original) ──
+          const prevAvgPace = prevPaces.length > 0
+            ? prevPaces.reduce((a, b) => a + b, 0) / prevPaces.length
+            : null;
 
-        // Previous average pace column
-        if (prevAvgPace !== null) {
-          doc.fontSize(7).font('Helvetica').fillColor(C.subtitle);
-          doc.text(fmtPace(prevAvgPace), tx, tableY + 7, { width: colWidths.prevAvg, align: 'center' });
-        } else {
-          doc.fontSize(7).font('Helvetica').fillColor(C.muted);
-          doc.text('-', tx, tableY + 7, { width: colWidths.prevAvg, align: 'center' });
-        }
-        tx += colWidths.prevAvg;
+          // Previous result column
+          if (mostRecentPrev) {
+            doc.fontSize(7).font('Helvetica').fillColor(C.subtitle);
+            doc.text(formatTime(mostRecentPrev.time), tx, tableY + 7, { width: colWidths.previous, align: 'center' });
+          } else {
+            doc.fontSize(7).font('Helvetica').fillColor(C.muted);
+            doc.text('-', tx, tableY + 7, { width: colWidths.previous, align: 'center' });
+          }
+          tx += colWidths.previous;
 
-        // Latest result (actual time)
-        const latestResult = sorted[sorted.length - 1];
-        doc.fontSize(7).font('Helvetica-Bold').fillColor(C.accent);
-        doc.text(formatTime(latestResult.time), tx, tableY + 7, { width: colWidths.latest, align: 'center' });
-        tx += colWidths.latest;
+          // Previous average pace
+          if (prevAvgPace !== null) {
+            doc.fontSize(7).font('Helvetica').fillColor(C.subtitle);
+            doc.text(fmtPace(prevAvgPace), tx, tableY + 7, { width: colWidths.prevAvg, align: 'center' });
+          } else {
+            doc.fontSize(7).font('Helvetica').fillColor(C.muted);
+            doc.text('-', tx, tableY + 7, { width: colWidths.prevAvg, align: 'center' });
+          }
+          tx += colWidths.prevAvg;
 
-        // Avg pace (in-period results)
-        doc.font('Helvetica').fillColor(C.subtitle);
-        doc.text(fmtPace(avg), tx, tableY + 7, { width: colWidths.avgPace, align: 'center' });
-        tx += colWidths.avgPace;
+          // Latest result (actual time)
+          const latestResult = sorted[sorted.length - 1];
+          doc.fontSize(7).font('Helvetica-Bold').fillColor(C.accent);
+          doc.text(formatTime(latestResult.time), tx, tableY + 7, { width: colWidths.latest, align: 'center' });
+          tx += colWidths.latest;
 
-        // Change
-        const impColor = improvement >= 0 ? C.green : C.red;
-        doc.font('Helvetica-Bold').fillColor(impColor);
-        doc.text(`${improvement >= 0 ? '+' : ''}${improvement}%`, tx, tableY + 7, { width: colWidths.improvement, align: 'center' });
-        tx += colWidths.improvement;
+          // Avg pace
+          doc.font('Helvetica').fillColor(C.subtitle);
+          doc.text(fmtPace(avg), tx, tableY + 7, { width: colWidths.avgPace, align: 'center' });
+          tx += colWidths.avgPace;
 
-        // Last test date
-        const lastDate = new Date(sorted[sorted.length - 1].date);
-        doc.font('Helvetica').fillColor(C.subtitle);
-        doc.text(lastDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), tx, tableY + 7, { width: colWidths.latestDate, align: 'center' });
-        tx += colWidths.latestDate;
+          // Change
+          const impColor = improvement >= 0 ? C.green : C.red;
+          doc.font('Helvetica-Bold').fillColor(impColor);
+          doc.text(`${improvement >= 0 ? '+' : ''}${improvement}%`, tx, tableY + 7, { width: colWidths.improvement, align: 'center' });
+          tx += colWidths.improvement;
 
-        // Prev test date
-        if (mostRecentPrev) {
-          const prevDate = new Date(mostRecentPrev.date);
-          doc.font('Helvetica').fillColor(C.muted);
-          doc.text(prevDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), tx, tableY + 7, { width: colWidths.prevDate, align: 'center' });
-        } else {
-          doc.font('Helvetica').fillColor(C.muted);
-          doc.text('-', tx, tableY + 7, { width: colWidths.prevDate, align: 'center' });
+          // Last test date
+          const lastDate = new Date(sorted[sorted.length - 1].date);
+          doc.font('Helvetica').fillColor(C.subtitle);
+          doc.text(lastDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), tx, tableY + 7, { width: colWidths.latestDate, align: 'center' });
+          tx += colWidths.latestDate;
+
+          // Prev test date
+          if (mostRecentPrev) {
+            const prevDate = new Date(mostRecentPrev.date);
+            doc.font('Helvetica').fillColor(C.muted);
+            doc.text(prevDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), tx, tableY + 7, { width: colWidths.prevDate, align: 'center' });
+          } else {
+            doc.font('Helvetica').fillColor(C.muted);
+            doc.text('-', tx, tableY + 7, { width: colWidths.prevDate, align: 'center' });
+          }
         }
       }
 
