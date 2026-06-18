@@ -10,7 +10,8 @@ import {
   HiOutlineUserGroup,
   HiOutlineBeaker,
   HiOutlineUser,
-  HiOutlineClipboardDocumentList
+  HiOutlineClipboardDocumentList,
+  HiOutlineEyeSlash
 } from 'react-icons/hi2';
 
 const monthNames = [
@@ -50,6 +51,9 @@ const Export = () => {
   const [customEnd, setCustomEnd] = useState('');
   const [athletes, setAthletes] = useState([]);
   const [testTypes, setTestTypes] = useState([]);
+  const [excludedAthletes, setExcludedAthletes] = useState([]);
+  const [testAthletes, setTestAthletes] = useState([]); // athletes with results for selected test types
+  const [loadingTestAthletes, setLoadingTestAthletes] = useState(false);
 
   // ── Fetch sessions for attendance tab ──
   useEffect(() => {
@@ -92,6 +96,28 @@ const Export = () => {
     if (activeTab === 'tests') fetchData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
+
+  // ── Fetch athletes for selected test types ──
+  useEffect(() => {
+    const fetchTestAthletes = async () => {
+      if (testMode !== 'test' || selectedTestTypes.length === 0) {
+        setTestAthletes([]);
+        return;
+      }
+      setLoadingTestAthletes(true);
+      try {
+        const { data } = await api.get(`/tests/results/athletes?testTypeIds=${selectedTestTypes.join(',')}`);
+        setTestAthletes(data);
+        // Clear any excluded athletes that are no longer in the list
+        setExcludedAthletes(prev => prev.filter(id => data.some(a => a._id === id)));
+      } catch (error) {
+        setTestAthletes([]);
+      } finally {
+        setLoadingTestAthletes(false);
+      }
+    };
+    fetchTestAthletes();
+  }, [selectedTestTypes, testMode]);
 
   // ── Export Attendance ──
   const handleExportAttendance = async () => {
@@ -143,7 +169,12 @@ const Export = () => {
       const params = new URLSearchParams({ mode: testMode, format, period });
 
       if (testMode === 'athlete') params.append('athleteId', selectedAthlete);
-      if (testMode === 'test') params.append('testTypeIds', selectedTestTypes.join(','));
+      if (testMode === 'test') {
+        params.append('testTypeIds', selectedTestTypes.join(','));
+        if (excludedAthletes.length > 0) {
+          params.append('excludeAthleteIds', excludedAthletes.join(','));
+        }
+      }
       if (period === 'custom') {
         params.append('startDate', customStart);
         params.append('endDate', customEnd);
@@ -450,6 +481,88 @@ const Export = () => {
                 </>
               )}
             </div>
+
+            {/* Exclude Athletes */}
+            {testMode === 'test' && testAthletes.length > 0 && (
+              <div className="glass-card p-5">
+                <h2 className="text-sm font-semibold text-dark-300 mb-3 flex items-center gap-2">
+                  <HiOutlineEyeSlash className="w-4 h-4 text-accent-400" />
+                  Exclude Athletes
+                  {excludedAthletes.length > 0 && (
+                    <span className="ml-auto text-xs font-normal text-red-400 bg-red-500/10 px-2 py-0.5 rounded-full">
+                      {excludedAthletes.length} excluded
+                    </span>
+                  )}
+                </h2>
+
+                <p className="text-[11px] text-dark-500 mb-3">Uncheck athletes to remove them from the report.</p>
+
+                <div className="flex gap-2 mb-3">
+                  <button
+                    id="include-all-athletes"
+                    type="button"
+                    onClick={() => setExcludedAthletes([])}
+                    className="text-[11px] text-accent-400 hover:text-accent-300 font-medium transition-colors"
+                  >
+                    Include All
+                  </button>
+                  <span className="text-dark-600">•</span>
+                  <button
+                    id="exclude-all-athletes"
+                    type="button"
+                    onClick={() => setExcludedAthletes(testAthletes.map(a => a._id))}
+                    className="text-[11px] text-dark-500 hover:text-dark-300 font-medium transition-colors"
+                  >
+                    Exclude All
+                  </button>
+                </div>
+
+                {loadingTestAthletes ? (
+                  <p className="text-xs text-dark-500 text-center py-3">Loading athletes...</p>
+                ) : (
+                  <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1 custom-scrollbar">
+                    {testAthletes.map(a => {
+                      const isIncluded = !excludedAthletes.includes(a._id);
+                      return (
+                        <label
+                          key={a._id}
+                          htmlFor={`athlete-excl-${a._id}`}
+                          className={`flex items-center gap-3 p-2.5 rounded-xl cursor-pointer transition-all border-2 ${isIncluded
+                              ? 'border-transparent bg-dark-700/40 text-dark-200 hover:bg-dark-700/70'
+                              : 'border-red-500/30 bg-red-500/8 text-dark-500 line-through'
+                            }`}
+                        >
+                          <input
+                            id={`athlete-excl-${a._id}`}
+                            type="checkbox"
+                            checked={isIncluded}
+                            onChange={() => {
+                              setExcludedAthletes(prev =>
+                                prev.includes(a._id)
+                                  ? prev.filter(id => id !== a._id)
+                                  : [...prev, a._id]
+                              );
+                            }}
+                            className="sr-only"
+                          />
+                          <div className={`w-4.5 h-4.5 rounded-md border-2 flex items-center justify-center transition-all flex-shrink-0 ${isIncluded
+                              ? 'border-accent-500 bg-accent-500'
+                              : 'border-dark-500 bg-dark-700'
+                            }`}>
+                            {isIncluded && (
+                              <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                              </svg>
+                            )}
+                          </div>
+                          <span className="text-sm font-medium truncate">{a.name}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Period Filter */}
             <div className="glass-card p-5">

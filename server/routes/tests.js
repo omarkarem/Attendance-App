@@ -94,6 +94,33 @@ router.delete('/types/:id', async (req, res) => {
 
 // --- Test Results ---
 
+// GET /api/tests/results/athletes - Get athletes who have results for given test types
+router.get('/results/athletes', async (req, res) => {
+  try {
+    const { testTypeIds } = req.query;
+    if (!testTypeIds) {
+      return res.status(400).json({ message: 'testTypeIds is required.' });
+    }
+
+    const ids = testTypeIds.split(',').filter(id => id.trim());
+
+    const athleteIds = await TestResult.distinct('athlete', {
+      coach: req.user._id,
+      testType: { $in: ids }
+    });
+
+    const Athlete = require('../models/Athlete');
+    const athletes = await Athlete.find({
+      _id: { $in: athleteIds },
+      coach: req.user._id
+    }).select('_id name').sort({ name: 1 });
+
+    res.json(athletes);
+  } catch (error) {
+    res.status(500).json({ message: error.message || 'Error fetching athletes.' });
+  }
+});
+
 // GET /api/tests/results - Get test results
 router.get('/results', async (req, res) => {
   try {

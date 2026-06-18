@@ -97,7 +97,10 @@ router.get('/', async (req, res) => {
 // ────────────────────────────────────────────────
 router.get('/tests', async (req, res) => {
   try {
-    const { mode, athleteId, testTypeId, testTypeIds, period, startDate: startStr, endDate: endStr, format } = req.query;
+    const { mode, athleteId, testTypeId, testTypeIds, period, startDate: startStr, endDate: endStr, format, excludeAthleteIds } = req.query;
+
+    // Parse excluded athlete IDs
+    const excludedIds = excludeAthleteIds ? excludeAthleteIds.split(',').filter(id => id.trim()) : [];
 
     if (!mode || !format) {
       return res.status(400).json({ message: 'Mode and format are required.' });
@@ -224,7 +227,12 @@ router.get('/tests', async (req, res) => {
           .populate('athlete', 'name')
           .sort({ date: -1 });
 
-        const athleteIdsWithResults = [...new Set(results.map(r => (r.athlete?._id || r.athlete)?.toString()))];
+        const athleteIdsWithResults = [...new Set(results.map(r => (r.athlete?._id || r.athlete)?.toString()))]
+          .filter(id => !excludedIds.includes(id));
+        const filteredResults = results.filter(r => {
+          const aId = (r.athlete?._id || r.athlete)?.toString();
+          return !excludedIds.includes(aId);
+        });
         const athletes = await Athlete.find({
           _id: { $in: athleteIdsWithResults },
           coach: req.user._id
@@ -245,7 +253,7 @@ router.get('/tests', async (req, res) => {
           previousResultsByAthlete[aId].push(r);
         });
 
-        const allTestData = [{ testType, results, athletes, startDate, endDate, previousResultsByAthlete }];
+        const allTestData = [{ testType, results: filteredResults, athletes, startDate, endDate, previousResultsByAthlete }];
         const safeName = testType.title.replace(/[^a-zA-Z0-9]/g, '_');
 
         if (format === 'excel') {
@@ -278,7 +286,12 @@ router.get('/tests', async (req, res) => {
             .populate('athlete', 'name')
             .sort({ date: -1 });
 
-          const athleteIdsWithResults = [...new Set(results.map(r => (r.athlete?._id || r.athlete)?.toString()))];
+          const athleteIdsWithResults = [...new Set(results.map(r => (r.athlete?._id || r.athlete)?.toString()))]
+            .filter(id => !excludedIds.includes(id));
+          const filteredResults = results.filter(r => {
+            const aId = (r.athlete?._id || r.athlete)?.toString();
+            return !excludedIds.includes(aId);
+          });
           const athletes = await Athlete.find({
             _id: { $in: athleteIdsWithResults },
             coach: req.user._id
@@ -300,7 +313,7 @@ router.get('/tests', async (req, res) => {
             previousResultsByAthlete[aId].push(r);
           });
 
-          allTestData.push({ testType, results, athletes, startDate, endDate, previousResultsByAthlete });
+          allTestData.push({ testType, results: filteredResults, athletes, startDate, endDate, previousResultsByAthlete });
         }
 
         const safeNames = fetchedTestTypes.map(t => t.title.replace(/[^a-zA-Z0-9]/g, '_'));
