@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { HiOutlinePlus, HiOutlineTrash, HiOutlineChartBar, HiOutlineCog, HiOutlinePencil } from 'react-icons/hi2';
+import { FaBicycle } from 'react-icons/fa';
 import toast from 'react-hot-toast';
 import { useSearchParams } from 'react-router-dom';
 import useAuth from '../hooks/useAuth';
@@ -68,7 +69,12 @@ const Tests = () => {
     timeH: '0',
     timeM: '0',
     timeS: '0',
-    description: ''
+    description: '',
+    // Cycling fields
+    weight: '',
+    avgPower: '', maxPower: '',
+    avgCadence: '', maxCadence: '',
+    avgHeartRate: '', maxHeartRate: ''
   });
 
   const fetchData = async () => {
@@ -232,6 +238,18 @@ const Tests = () => {
         description: resultForm.description
       };
 
+      // Include cycling fields if category is Cycling
+      if (selectedTestType?.category === 'Cycling') {
+        const numOrNull = (v) => v !== '' && v !== undefined ? parseFloat(v) : undefined;
+        payload.weight = numOrNull(resultForm.weight);
+        payload.avgPower = numOrNull(resultForm.avgPower);
+        payload.maxPower = numOrNull(resultForm.maxPower);
+        payload.avgCadence = numOrNull(resultForm.avgCadence);
+        payload.maxCadence = numOrNull(resultForm.maxCadence);
+        payload.avgHeartRate = numOrNull(resultForm.avgHeartRate);
+        payload.maxHeartRate = numOrNull(resultForm.maxHeartRate);
+      }
+
       await api.post('/tests/results', payload);
       
       setResultForm({
@@ -240,7 +258,11 @@ const Tests = () => {
         timeH: '0',
         timeM: '0',
         timeS: '0',
-        description: ''
+        description: '',
+        weight: '',
+        avgPower: '', maxPower: '',
+        avgCadence: '', maxCadence: '',
+        avgHeartRate: '', maxHeartRate: ''
       });
       toast.success('Result recorded');
     } catch (error) {
@@ -584,10 +606,87 @@ const Tests = () => {
                 />
               </div>
 
+              {/* Cycling Data Section */}
+              {selectedTestType?.category === 'Cycling' && (
+                <div className="border border-green-500/20 rounded-xl p-4 space-y-4 bg-green-500/5">
+                  <h3 className="text-sm font-semibold text-green-400 flex items-center gap-2">
+                    <FaBicycle className="w-4 h-4" />
+                    Cycling Data
+                  </h3>
+
+                  {/* Weight */}
+                  <div>
+                    <label className="block text-xs font-medium text-dark-300 mb-1">Weight (kg)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={resultForm.weight}
+                      onChange={e => setResultForm({ ...resultForm, weight: e.target.value })}
+                      className="w-full bg-dark-800 border border-dark-600 rounded-xl px-4 py-2.5 text-white placeholder-dark-500 focus:outline-none focus:border-accent-500 text-sm"
+                      placeholder="e.g. 72.5"
+                    />
+                  </div>
+
+                  {/* Power */}
+                  <div>
+                    <label className="block text-xs font-medium text-dark-300 mb-1">Power (watts)</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <span className="block text-[10px] text-dark-500 mb-0.5">Avg (FTP)</span>
+                        <input type="number" min="0" value={resultForm.avgPower} onChange={e => setResultForm({ ...resultForm, avgPower: e.target.value })} className="w-full bg-dark-800 border border-dark-600 rounded-xl px-3 py-2.5 text-white text-sm text-center focus:outline-none focus:border-accent-500" placeholder="Avg" />
+                      </div>
+                      <div>
+                        <span className="block text-[10px] text-dark-500 mb-0.5">Max</span>
+                        <input type="number" min="0" value={resultForm.maxPower} onChange={e => setResultForm({ ...resultForm, maxPower: e.target.value })} className="w-full bg-dark-800 border border-dark-600 rounded-xl px-3 py-2.5 text-white text-sm text-center focus:outline-none focus:border-accent-500" placeholder="Max" />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Cadence */}
+                  <div>
+                    <label className="block text-xs font-medium text-dark-300 mb-1">Cadence (RPM)</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <span className="block text-[10px] text-dark-500 mb-0.5">Avg</span>
+                        <input type="number" min="0" value={resultForm.avgCadence} onChange={e => setResultForm({ ...resultForm, avgCadence: e.target.value })} className="w-full bg-dark-800 border border-dark-600 rounded-xl px-3 py-2.5 text-white text-sm text-center focus:outline-none focus:border-accent-500" placeholder="Avg" />
+                      </div>
+                      <div>
+                        <span className="block text-[10px] text-dark-500 mb-0.5">Max</span>
+                        <input type="number" min="0" value={resultForm.maxCadence} onChange={e => setResultForm({ ...resultForm, maxCadence: e.target.value })} className="w-full bg-dark-800 border border-dark-600 rounded-xl px-3 py-2.5 text-white text-sm text-center focus:outline-none focus:border-accent-500" placeholder="Max" />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Heart Rate */}
+                  <div>
+                    <label className="block text-xs font-medium text-dark-300 mb-1">Heart Rate (BPM)</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <span className="block text-[10px] text-dark-500 mb-0.5">Avg</span>
+                        <input type="number" min="0" value={resultForm.avgHeartRate} onChange={e => setResultForm({ ...resultForm, avgHeartRate: e.target.value })} className="w-full bg-dark-800 border border-dark-600 rounded-xl px-3 py-2.5 text-white text-sm text-center focus:outline-none focus:border-accent-500" placeholder="Avg" />
+                      </div>
+                      <div>
+                        <span className="block text-[10px] text-dark-500 mb-0.5">Max</span>
+                        <input type="number" min="0" value={resultForm.maxHeartRate} onChange={e => setResultForm({ ...resultForm, maxHeartRate: e.target.value })} className="w-full bg-dark-800 border border-dark-600 rounded-xl px-3 py-2.5 text-white text-sm text-center focus:outline-none focus:border-accent-500" placeholder="Max" />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {selectedTestType && (
-                <div className="bg-dark-800 border border-accent-500/30 rounded-xl p-4 mt-4 flex justify-between items-center">
-                  <span className="text-dark-300 text-sm">Calculated {selectedTestType.category === 'Cycling' ? 'Speed' : 'Pace'}</span>
-                  <span className="text-accent-400 font-bold">{calculatedPace}</span>
+                <div className="bg-dark-800 border border-accent-500/30 rounded-xl p-4 mt-4 space-y-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-dark-300 text-sm">Calculated {selectedTestType.category === 'Cycling' ? 'Speed' : 'Pace'}</span>
+                    <span className="text-accent-400 font-bold">{calculatedPace}</span>
+                  </div>
+                  {selectedTestType.category === 'Cycling' && resultForm.avgPower && resultForm.weight && (
+                    <div className="flex justify-between items-center">
+                      <span className="text-dark-300 text-sm">W/kg</span>
+                      <span className="text-green-400 font-bold">{(parseFloat(resultForm.avgPower) / parseFloat(resultForm.weight)).toFixed(2)}</span>
+                    </div>
+                  )}
                 </div>
               )}
 

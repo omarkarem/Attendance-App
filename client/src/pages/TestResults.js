@@ -60,7 +60,8 @@ const TestResults = () => {
   // Edit Modal State
   const [editingResult, setEditingResult] = useState(null);
   const [editForm, setEditForm] = useState({
-    athleteId: '', testTypeId: '', date: '', distanceValue: '', distanceUnit: 'm', timeH: '0', timeM: '0', timeS: '0', description: ''
+    athleteId: '', testTypeId: '', date: '', distanceValue: '', distanceUnit: 'm', timeH: '0', timeM: '0', timeS: '0', description: '',
+    weight: '', avgPower: '', maxPower: '', avgCadence: '', maxCadence: '', avgHeartRate: '', maxHeartRate: ''
   });
 
   const fetchResults = async () => {
@@ -103,7 +104,14 @@ const TestResults = () => {
       timeH: Math.floor(r.time / 3600).toString(),
       timeM: Math.floor((r.time % 3600) / 60).toString(),
       timeS: (r.time % 60).toString(),
-      description: r.description || ''
+      description: r.description || '',
+      weight: r.weight != null ? r.weight.toString() : '',
+      avgPower: r.avgPower != null ? r.avgPower.toString() : '',
+      maxPower: r.maxPower != null ? r.maxPower.toString() : '',
+      avgCadence: r.avgCadence != null ? r.avgCadence.toString() : '',
+      maxCadence: r.maxCadence != null ? r.maxCadence.toString() : '',
+      avgHeartRate: r.avgHeartRate != null ? r.avgHeartRate.toString() : '',
+      maxHeartRate: r.maxHeartRate != null ? r.maxHeartRate.toString() : ''
     });
     setEditingResult(r);
   };
@@ -119,6 +127,9 @@ const TestResults = () => {
                           (parseInt(editForm.timeM) || 0) * 60 + 
                           (parseInt(editForm.timeS) || 0);
 
+      const numOrNull = (v) => v !== '' && v !== undefined ? parseFloat(v) : undefined;
+      const editTestType = testTypes.find(t => t._id === editForm.testTypeId);
+
       const payload = {
         athleteId: editForm.athleteId,
         testTypeId: editForm.testTypeId,
@@ -127,6 +138,17 @@ const TestResults = () => {
         time: timeSeconds,
         description: editForm.description
       };
+
+      // Include cycling fields
+      if (editTestType?.category === 'Cycling') {
+        payload.weight = numOrNull(editForm.weight);
+        payload.avgPower = numOrNull(editForm.avgPower);
+        payload.maxPower = numOrNull(editForm.maxPower);
+        payload.avgCadence = numOrNull(editForm.avgCadence);
+        payload.maxCadence = numOrNull(editForm.maxCadence);
+        payload.avgHeartRate = numOrNull(editForm.avgHeartRate);
+        payload.maxHeartRate = numOrNull(editForm.maxHeartRate);
+      }
 
       const { data: updatedResult } = await api.put(`/tests/results/${editingResult._id}`, payload);
       
@@ -245,6 +267,22 @@ const TestResults = () => {
                       "{r.description}"
                     </div>
                   )}
+                  {r.testType?.category === 'Cycling' && (r.avgPower || r.avgCadence || r.avgHeartRate) && (
+                    <div className="col-span-12 flex flex-wrap gap-3 mt-1 px-2 text-[11px]">
+                      {r.avgPower != null && (
+                        <span className="text-green-400">⚡ {r.avgPower}W{r.maxPower ? ` (max ${r.maxPower}W)` : ''}</span>
+                      )}
+                      {r.avgCadence != null && (
+                        <span className="text-blue-400">🔄 {r.avgCadence} rpm{r.maxCadence ? ` (max ${r.maxCadence})` : ''}</span>
+                      )}
+                      {r.avgHeartRate != null && (
+                        <span className="text-red-400">❤ {r.avgHeartRate} bpm{r.maxHeartRate ? ` (max ${r.maxHeartRate})` : ''}</span>
+                      )}
+                      {r.weight != null && r.avgPower != null && (
+                        <span className="text-amber-400">W/kg: {(r.avgPower / r.weight).toFixed(2)}</span>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -360,6 +398,64 @@ const TestResults = () => {
               className="w-full bg-dark-800 border border-dark-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-accent-500 resize-none"
             />
           </div>
+
+          {/* Cycling Data Section */}
+          {(() => {
+            const editTestType = testTypes.find(t => t._id === editForm.testTypeId);
+            if (editTestType?.category !== 'Cycling') return null;
+            return (
+              <div className="border border-green-500/20 rounded-xl p-4 space-y-3 bg-green-500/5">
+                <h3 className="text-sm font-semibold text-green-400 flex items-center gap-2">
+                  <FaBicycle className="w-4 h-4" />
+                  Cycling Data
+                </h3>
+                <div>
+                  <label className="block text-xs font-medium text-dark-300 mb-1">Weight (kg)</label>
+                  <input type="number" step="0.1" min="0" value={editForm.weight} onChange={e => setEditForm({ ...editForm, weight: e.target.value })} className="w-full bg-dark-800 border border-dark-600 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-accent-500" placeholder="e.g. 72.5" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-dark-300 mb-1">Power (watts)</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <span className="block text-[10px] text-dark-500 mb-0.5">Avg (FTP)</span>
+                      <input type="number" min="0" value={editForm.avgPower} onChange={e => setEditForm({ ...editForm, avgPower: e.target.value })} className="w-full bg-dark-800 border border-dark-600 rounded-xl px-3 py-2.5 text-white text-sm text-center focus:outline-none focus:border-accent-500" placeholder="Avg" />
+                    </div>
+                    <div>
+                      <span className="block text-[10px] text-dark-500 mb-0.5">Max</span>
+                      <input type="number" min="0" value={editForm.maxPower} onChange={e => setEditForm({ ...editForm, maxPower: e.target.value })} className="w-full bg-dark-800 border border-dark-600 rounded-xl px-3 py-2.5 text-white text-sm text-center focus:outline-none focus:border-accent-500" placeholder="Max" />
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-dark-300 mb-1">Cadence (RPM)</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <span className="block text-[10px] text-dark-500 mb-0.5">Avg</span>
+                      <input type="number" min="0" value={editForm.avgCadence} onChange={e => setEditForm({ ...editForm, avgCadence: e.target.value })} className="w-full bg-dark-800 border border-dark-600 rounded-xl px-3 py-2.5 text-white text-sm text-center focus:outline-none focus:border-accent-500" placeholder="Avg" />
+                    </div>
+                    <div>
+                      <span className="block text-[10px] text-dark-500 mb-0.5">Max</span>
+                      <input type="number" min="0" value={editForm.maxCadence} onChange={e => setEditForm({ ...editForm, maxCadence: e.target.value })} className="w-full bg-dark-800 border border-dark-600 rounded-xl px-3 py-2.5 text-white text-sm text-center focus:outline-none focus:border-accent-500" placeholder="Max" />
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-dark-300 mb-1">Heart Rate (BPM)</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <span className="block text-[10px] text-dark-500 mb-0.5">Avg</span>
+                      <input type="number" min="0" value={editForm.avgHeartRate} onChange={e => setEditForm({ ...editForm, avgHeartRate: e.target.value })} className="w-full bg-dark-800 border border-dark-600 rounded-xl px-3 py-2.5 text-white text-sm text-center focus:outline-none focus:border-accent-500" placeholder="Avg" />
+                    </div>
+                    <div>
+                      <span className="block text-[10px] text-dark-500 mb-0.5">Max</span>
+                      <input type="number" min="0" value={editForm.maxHeartRate} onChange={e => setEditForm({ ...editForm, maxHeartRate: e.target.value })} className="w-full bg-dark-800 border border-dark-600 rounded-xl px-3 py-2.5 text-white text-sm text-center focus:outline-none focus:border-accent-500" placeholder="Max" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
           <button
             type="submit"
             className="w-full btn-primary flex items-center justify-center gap-2 mt-2"
