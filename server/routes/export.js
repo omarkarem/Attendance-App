@@ -6,8 +6,8 @@ const TestResult = require('../models/TestResult');
 const TestType = require('../models/TestType');
 const generateExcel = require('../utils/exportExcel');
 const generatePdf = require('../utils/exportPdf');
-const { generateAthleteTestPdf, generateTestTypeReportPdf } = require('../utils/exportTestPdf');
-const { generateAthleteTestExcel, generateTestTypeReportExcel } = require('../utils/exportTestExcel');
+const { generateAthleteTestPdf, generateTestTypeReportPdf, generateMultiTestTypeReportPdf } = require('../utils/exportTestPdf');
+const { generateAthleteTestExcel, generateTestTypeReportExcel, generateMultiTestTypeReportExcel } = require('../utils/exportTestExcel');
 const auth = require('../middleware/auth');
 
 const router = express.Router();
@@ -212,7 +212,7 @@ router.get('/tests', async (req, res) => {
         return res.status(404).json({ message: 'No matching test types found.' });
       }
 
-      // For a single test type, use the original single-report generators
+      // For a single test type, use the same generator as multi-test for consistency
       if (fetchedTestTypes.length === 1) {
         const testType = fetchedTestTypes[0];
 
@@ -230,11 +230,26 @@ router.get('/tests', async (req, res) => {
           coach: req.user._id
         }).sort({ name: 1 });
 
-        const data = { testType, results, athletes, startDate, endDate };
+        // Fetch results before the selected period so Previous columns are populated
+        const prevResultsRaw = await TestResult.find({
+          coach: req.user._id,
+          testType: testType._id,
+          athlete: { $in: athleteIdsWithResults },
+          date: { $lt: startDate }
+        }).sort({ date: -1 });
+
+        const previousResultsByAthlete = {};
+        prevResultsRaw.forEach(r => {
+          const aId = (r.athlete?._id || r.athlete)?.toString();
+          if (!previousResultsByAthlete[aId]) previousResultsByAthlete[aId] = [];
+          previousResultsByAthlete[aId].push(r);
+        });
+
+        const allTestData = [{ testType, results, athletes, startDate, endDate, previousResultsByAthlete }];
         const safeName = testType.title.replace(/[^a-zA-Z0-9]/g, '_');
 
         if (format === 'excel') {
-          const workbook = await generateTestTypeReportExcel(data);
+          const workbook = await generateMultiTestTypeReportExcel(allTestData);
           const filename = `TestReport_${safeName}.xlsx`;
           res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
           res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
@@ -244,7 +259,7 @@ router.get('/tests', async (req, res) => {
           const filename = `TestReport_${safeName}.pdf`;
           res.setHeader('Content-Type', 'application/pdf');
           res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-          const doc = generateTestTypeReportPdf(data);
+          const doc = generateMultiTestTypeReportPdf(allTestData);
           doc.pipe(res);
           doc.end();
         } else {
@@ -294,7 +309,6 @@ router.get('/tests', async (req, res) => {
           : safeNames.join('_');
 
         if (format === 'excel') {
-          const { generateMultiTestTypeReportExcel } = require('../utils/exportTestExcel');
           const workbook = await generateMultiTestTypeReportExcel(allTestData);
           const filename = `TestReport_${displayName}.xlsx`;
           res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -302,7 +316,6 @@ router.get('/tests', async (req, res) => {
           await workbook.xlsx.write(res);
           res.end();
         } else if (format === 'pdf') {
-          const { generateMultiTestTypeReportPdf } = require('../utils/exportTestPdf');
           const filename = `TestReport_${displayName}.pdf`;
           res.setHeader('Content-Type', 'application/pdf');
           res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
