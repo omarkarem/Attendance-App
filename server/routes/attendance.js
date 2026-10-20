@@ -3,8 +3,8 @@ const Attendance = require('../models/Attendance');
 const Athlete = require('../models/Athlete');
 const Session = require('../models/Session');
 const auth = require('../middleware/auth');
-const { parseDayKey, dayRange, monthRange, toDayKey } = require('../utils/dates');
-const { ensureScheduledSessions } = require('../utils/sessionGenerator');
+const { parseDayKey, dayRange, monthRange, clientToday } = require('../utils/dates');
+const { backfillScheduledSessions } = require('../utils/sessionGenerator');
 
 const router = express.Router();
 
@@ -91,6 +91,8 @@ router.get('/monthly', async (req, res) => {
     if (!month || !year || month < 1 || month > 12) {
       return res.status(400).json({ message: 'Month and year are required.' });
     }
+    // Template days since the last read are created first so the grid has no gaps.
+    await backfillScheduledSessions(req.user._id, clientToday(req.query.today));
     const { start, end } = monthRange(year, month);
     res.json({ ...(await gridPayload(req.user._id, start, end)), month, year });
   } catch (error) {
@@ -106,6 +108,7 @@ router.get('/range', async (req, res) => {
     if (!req.query.startDate || !req.query.endDate || !startKey || !endKey) {
       return res.status(400).json({ message: 'Start date and end date are required.' });
     }
+    await backfillScheduledSessions(req.user._id, clientToday(req.query.today));
     const start = dayRange(startKey).start;
     const end = new Date(dayRange(endKey).end.getTime() - 1);
     res.json(await gridPayload(req.user._id, start, end));
@@ -118,11 +121,12 @@ router.get('/range', async (req, res) => {
 router.get('/stats', async (req, res) => {
   try {
     const coach = req.user._id;
-    const todayKey = parseDayKey(req.query.date) || toDayKey(new Date());
+    const todayKey = clientToday(req.query.date);
     const today = dayRange(todayKey);
 
-    // Make sure today's template sessions exist so the dashboard is accurate.
-    await ensureScheduledSessions(coach, todayKey);
+    // Create template sessions up to today (including any days missed since the
+    // last visit) so the dashboard counts are accurate.
+    await backfillScheduledSessions(coach, todayKey);
 
     const [y, m, d] = todayKey.split('-').map(Number);
     const month = monthRange(y, m);

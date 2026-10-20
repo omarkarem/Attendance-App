@@ -11,5 +11,11 @@
       "source": "/(.*)",
       "destination": "server.js"
     }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/generate",
+      "schedule": "0 3 * * *"
+    }
   ]
 }

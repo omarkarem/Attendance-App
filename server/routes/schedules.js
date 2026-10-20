@@ -2,7 +2,7 @@ const express = require('express');
 const Schedule = require('../models/Schedule');
 const Session = require('../models/Session');
 const auth = require('../middleware/auth');
-const { dayRange, toDayKey } = require('../utils/dates');
+const { dayRange, toDayKey, addDays } = require('../utils/dates');
 
 const router = express.Router();
 
@@ -39,7 +39,9 @@ router.post('/', async (req, res) => {
       coach: req.user._id,
       daysOfWeek: [...new Set(daysOfWeek)].sort(),
       time: time || null,
-      assignedAthletes: assignedAthletes || []
+      assignedAthletes: assignedAthletes || [],
+      // Backfill starts on the day the template was created.
+      generatedThrough: addDays(toDayKey(new Date()), -1)
     });
 
     res.status(201).json(schedule);
@@ -74,7 +76,14 @@ router.put('/:id', async (req, res) => {
       schedule.time = time || null;
       futureUpdate.time = schedule.time;
     }
-    if (active !== undefined) schedule.active = !!active;
+    if (active !== undefined) {
+      // Resuming skips the paused days: backfill picks up from today, not from the pause.
+      const yesterday = addDays(toDayKey(new Date()), -1);
+      if (!schedule.active && active && (!schedule.generatedThrough || schedule.generatedThrough < yesterday)) {
+        schedule.generatedThrough = yesterday;
+      }
+      schedule.active = !!active;
+    }
     if (assignedAthletes !== undefined) {
       schedule.assignedAthletes = assignedAthletes;
       futureUpdate.assignedAthletes = assignedAthletes;

@@ -11,6 +11,7 @@ const attendanceRoutes = require('./routes/attendance');
 const exportRoutes = require('./routes/export');
 const scheduleRoutes = require('./routes/schedules');
 const testRoutes = require('./routes/tests');
+const cronRoutes = require('./routes/cron');
 
 const app = express();
 
@@ -34,6 +35,7 @@ const mountRoutes = (prefix) => {
   app.use(`${prefix}/export`, exportRoutes);
   app.use(`${prefix}/schedules`, scheduleRoutes);
   app.use(`${prefix}/tests`, testRoutes);
+  app.use(`${prefix}/cron`, cronRoutes);
 };
 
 mountRoutes('/api');

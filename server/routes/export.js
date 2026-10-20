@@ -9,7 +9,8 @@ const generatePdf = require('../utils/exportPdf');
 const { generateAthleteTestPdf, generateTestTypeReportPdf, generateMultiTestTypeReportPdf } = require('../utils/exportTestPdf');
 const { generateAthleteTestExcel, generateTestTypeReportExcel, generateMultiTestTypeReportExcel } = require('../utils/exportTestExcel');
 const auth = require('../middleware/auth');
-const { monthRange } = require('../utils/dates');
+const { monthRange, clientToday } = require('../utils/dates');
+const { backfillScheduledSessions } = require('../utils/sessionGenerator');
 
 const router = express.Router();
 
@@ -26,6 +27,7 @@ router.get('/', async (req, res) => {
 
     const m = parseInt(month) - 1;
     const y = parseInt(year);
+    await backfillScheduledSessions(req.user._id, clientToday(req.query.today));
     const { start: startDate, end: endDate } = monthRange(y, m + 1);
 
     // Get sessions

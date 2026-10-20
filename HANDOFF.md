@@ -17,7 +17,8 @@ Commits on the branch:
 |---|---|
 | `cff7dc2` | Server data bugs, timezone handling, PDF exports |
 | `7169ca2` | Client redesign and UI/UX bug fixes |
-| (this doc) | Handoff document |
+| `e9f2f00` | Handoff document |
+| (next) | Daily template generation: catch-up on read, watermark, Vercel Cron |
 
 ---
 
@@ -31,6 +32,7 @@ MONGODB_URI=mongodb://127.0.0.1:27017/attendtrack
 JWT_SECRET=<long random string>
 PORT=5000
 CLIENT_URL=http://localhost:3000
+CRON_SECRET=<long random string>   # optional; enables /api/cron/generate
 ```
 
 ```bash
@@ -96,7 +98,11 @@ server
 - Session rows show start time, name, Template or One-off badge, roster ("6 expected" or "Everyone expected") and counts.
 - Row actions: Take or Review attendance, Edit name or time, Choose athletes, Delete (with confirmation).
 - **Templates** (`?view=templates`): weekly plans with days, time and roster. You can edit, choose athletes, pause or resume, and delete them.
-- Template sessions are created lazily when a day is opened (Sessions page, or Today for the current day). A deleted template session is remembered and not recreated.
+- Template sessions are created automatically:
+  - **Catch-up on read**: Today, the attendance grid, attendance export and the day view first create every template day since the template's watermark (`generatedThrough`) up to the coach's today, then move the watermark.
+  - **Daily cron**: a Vercel Cron at 03:00 UTC does the same for every coach.
+  - **Viewed day**: opening any day, including future ones, creates that day's sessions.
+- A deleted template session is remembered (`skippedDates`) and never recreated. Days while a template was paused are skipped. Templates that existed before the watermark start from the day of the first read, so older ambiguous gaps (never opened, or deleted under the old code) are left alone.
 - Roster rule used everywhere: **an empty roster means everyone is expected**.
 
 ### Check-in (`/checkin/:id`)
@@ -147,7 +153,7 @@ server
 |---|---|
 | User | name, email (unique), password (bcrypt, `select: false`) |
 | Athlete | name (2 to 50 chars, unique per coach, case-insensitive), coach, isNewAthlete, joinDate, active |
-| Schedule (template) | name, daysOfWeek [0..6], time `HH:MM`, assignedAthletes, active, **skippedDates** [`yyyy-MM-dd`] (new) |
+| Schedule (template) | name, daysOfWeek [0..6], time `HH:MM`, assignedAthletes, active, **skippedDates** [`yyyy-MM-dd`] (new), **generatedThrough** `yyyy-MM-dd` watermark (new; set to the day before creation, moved past paused days on resume) |
 | Session | name, coach, date (**12:00 UTC on the calendar day**), **time** `HH:MM` (new), scheduleId, **dayKey** (new, generated sessions), assignedAthletes |
 | Attendance | session, athlete, coach, present, date (copied from session); unique (session, athlete) |
 | TestType | title, category Running/Swimming/Cycling/Other, measureType Distance/Time, targetDistance (m), targetTime (s), active |
@@ -177,6 +183,9 @@ New index: `Session { scheduleId: 1, dayKey: 1 }`, unique, partial on `dayKey` b
 | GET | `/tests/results/athletes?testTypeIds=` | athletes with results, for export exclusions |
 | GET | `/export?month&year&format&sessionFilter` | 404 JSON when the month has no sessions |
 | GET | `/export/tests?mode&format&period&...` | |
+| GET | `/cron/generate` | no user token; needs `Authorization: Bearer $CRON_SECRET`; 503 when `CRON_SECRET` is unset; returns `{ date, coaches, created }` |
+
+Every GET from the client carries `today=yyyy-MM-dd` (the coach's local date, added in `client/src/utils/api.js`). The server uses it as the end of catch-up generation, capped at one day past UTC today.
 
 Session list items carry `presentCount` and `totalCount` (expected athletes only), `extraCount` (present but not on the roster) and `recordCount`.
 
@@ -292,6 +301,7 @@ The first column says how each bug was found: **T** = reproduced while testing t
 ## 7. How this was tested
 
 - **Environment:** an in-memory MongoDB 7, the real server and the real client. A seed script created a coach, 10 athletes, 2 templates (one with a roster), 40 days of generated sessions with attendance, 4 test types and 55 results, including cycling data.
+- **Backfill script:** 17 checks, all passing. They cover the watermark on a new template, catch-up after a gap, skipped days, legacy templates left alone, pause and resume, 5 parallel reads with no duplicates, the future-date cap, catch-up from stats and export, and cron auth (missing, wrong and unset secret), plus cron coverage and idempotence.
 - **API regression script:** 20 checks, all passing. They cover concurrent generation, delete-then-reload, noon-UTC storage, time validation, `clearAthleteIds`, foreign-ID rejection, regex names, cascading deletes, result validation, stats vs list consistency and template edits.
 - **Browser, desktop (1366px) and phone (375px):**
   - every page, including login and signup validation and a wrong password
@@ -316,7 +326,7 @@ Not covered:
 
 Highest impact first.
 
-1. **Template sessions only exist for days someone opened.** Past days that nobody opened have no session, so they are missing from the grid, exports and stats. Fix: a scheduled job (Vercel Cron) that generates each active template's sessions daily, or backfills on demand when a month is opened in the grid or export.
+1. **Template session gaps before this branch (partly resolved).** From deploy onward every template day gets its session, through catch-up on read plus the daily cron. Gaps from before deploy are deliberately not filled, because the data cannot tell "never opened" apart from "deleted under the old code". To fill a specific template's history on purpose, set its `generatedThrough` to the last day before the gap and the next read fills forward (capped at 400 days). Backfilled sessions use the template's current name, time and roster.
 2. **No automated tests in the repo.** The regression checks above ran from a scratch script. Add Jest + supertest with `mongodb-memory-server` on the server, and React Testing Library for check-in and the record form.
 3. **Auth hardening.** No password reset, no rate limiting on login, the JWT sits in `localStorage` (XSS-readable), and the 30-day expiry has no refresh. Also consider `helmet` and moving the CORS origin list to env vars.
 4. **Timezone edge.** Days are UTC calendar days, which is correct for coaches between UTC-11 and UTC+11. When the server has to guess "today" (no `?date`), it uses UTC.
@@ -328,5 +338,6 @@ Highest impact first.
 
 ### Deploying this branch
 - No data migration is needed. New fields are optional, older sessions fall back to their template's time, and the new index only covers documents with `dayKey`.
+- Set `CRON_SECRET` in the server's Vercel project to enable the daily cron (`server/vercel.json` schedules it). Without it the endpoint returns 503 and catch-up on read still keeps data complete.
 - Deploy the server first. The new client sends `clearAthleteIds` and reads `extraCount`/`recordCount`, while the server still accepts old clients.
 - Fonts are bundled, so no Google Fonts request is made at runtime.

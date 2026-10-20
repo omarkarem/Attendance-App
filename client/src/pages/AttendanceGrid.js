@@ -131,7 +131,7 @@ const AttendanceGrid = () => {
           <EmptyState
             icon={PiTable}
             title={`No sessions in ${mode === 'month' ? format(anchor, 'MMMM yyyy') : 'this week'}`}
-            body="Sessions show up here once they are created. Template sessions are created when you open that day."
+            body="Template sessions appear here automatically from the day each template was created. Add one-off sessions from the Sessions page."
             action={<Link to="/sessions"><Button variant="secondary">Go to sessions</Button></Link>}
           />
         </Card>

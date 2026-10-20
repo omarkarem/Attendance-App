@@ -465,7 +465,7 @@ const Sessions = () => {
 
       {view === 'templates' && templates.length > 0 && (
         <p className="mt-6 text-[13px] text-muted">
-          Sessions are created when a day is opened. Need a day off? Delete that day&apos;s session from <Link to="/sessions" className="text-accent hover:underline">By day</Link>.
+          Sessions are created automatically every day a template runs. Need a day off? Delete that day&apos;s session from <Link to="/sessions" className="text-accent hover:underline">By day</Link>.
         </p>
       )}
 

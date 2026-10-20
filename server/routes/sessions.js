@@ -3,8 +3,8 @@ const Session = require('../models/Session');
 const Schedule = require('../models/Schedule');
 const Attendance = require('../models/Attendance');
 const auth = require('../middleware/auth');
-const { parseDayKey, dayRange, noonUtc, toDayKey } = require('../utils/dates');
-const { ensureScheduledSessions } = require('../utils/sessionGenerator');
+const { parseDayKey, dayRange, noonUtc, toDayKey, clientToday } = require('../utils/dates');
+const { ensureScheduledSessions, backfillScheduledSessions } = require('../utils/sessionGenerator');
 
 const router = express.Router();
 
@@ -52,6 +52,9 @@ router.get('/', async (req, res) => {
     if (date) {
       const dayKey = parseDayKey(date);
       if (!dayKey) return res.status(400).json({ message: 'Invalid date.' });
+      // Catch up any missed template days, then make sure the viewed day exists
+      // (it may be in the future, which backfill never touches).
+      await backfillScheduledSessions(req.user._id, clientToday(req.query.today));
       await ensureScheduledSessions(req.user._id, dayKey);
       const { start, end } = dayRange(dayKey);
       query.date = { $gte: start, $lt: end };

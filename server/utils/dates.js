@@ -28,6 +28,19 @@ const monthRange = (year, month) => ({
   end: new Date(Date.UTC(year, month, 1) - 1)
 });
 
+// Shift a "yyyy-MM-dd" key by whole days.
+const addDays = (dayKey, n) => toDayKey(new Date(dayRange(dayKey).start.getTime() + n * 24 * 60 * 60 * 1000));
+
+// The coach's "today" as sent by the client, never more than a day ahead of UTC
+// (covers timezones up to UTC+14 without letting a client generate the future).
+const clientToday = (value) => {
+  const utcToday = toDayKey(new Date());
+  const key = parseDayKey(value);
+  if (!key || !value) return utcToday;
+  const max = addDays(utcToday, 1);
+  return key > max ? max : key;
+};
+
 const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-module.exports = { toDayKey, parseDayKey, dayRange, noonUtc, monthRange, escapeRegex };
+module.exports = { toDayKey, parseDayKey, dayRange, noonUtc, monthRange, addDays, clientToday, escapeRegex };
