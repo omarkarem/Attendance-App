@@ -13,6 +13,7 @@ import { Input } from '../components/ui/Form';
 import { Segmented } from '../components/ui/Segmented';
 import { useConfirm } from '../components/ui/ConfirmProvider';
 import AthleteFormDialog from '../components/AthleteFormDialog';
+import AddAthletesDialog from '../components/AddAthletesDialog';
 
 const Athletes = () => {
   usePageTitle('Athletes');
@@ -24,6 +25,7 @@ const Athletes = () => {
   const [status, setStatus] = useState('loading');
   const [search, setSearch] = useState('');
   const [dialog, setDialog] = useState({ open: false, athlete: null });
+  const [adding, setAdding] = useState(false);
 
   const load = useCallback(async () => {
     setStatus('loading');
@@ -92,7 +94,7 @@ const Athletes = () => {
       <PageHeader
         title="Athletes"
         description={status === 'ready' && !archived ? `${athletes.length} active${newCount ? `, ${newCount} new` : ''}` : 'Your roster.'}
-        actions={<Button icon={PiPlus} onClick={() => setDialog({ open: true, athlete: null })}>Add athlete</Button>}
+        actions={<Button icon={PiPlus} onClick={() => setAdding(true)}>Add athletes</Button>}
       />
 
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -125,8 +127,8 @@ const Athletes = () => {
             <EmptyState
               icon={PiUsersThree}
               title="Add your first athlete"
-              body="Build your roster once. Every session and report uses it."
-              action={<Button icon={PiPlus} onClick={() => setDialog({ open: true, athlete: null })}>Add athlete</Button>}
+              body="Build your roster once. Paste a whole list of names to add everyone in one go."
+              action={<Button icon={PiPlus} onClick={() => setAdding(true)}>Add athletes</Button>}
             />
           )}
         </Card>
@@ -142,7 +144,9 @@ const Athletes = () => {
                     {a.isNewAthlete && <Badge tone="new">New</Badge>}
                   </div>
                   <p className="text-[12px] text-muted">
-                    {archived ? 'Archived' : 'Joined'} {format(new Date(archived ? a.updatedAt : a.joinDate), 'MMM d, yyyy')}
+                    {archived
+                      ? `Archived ${format(new Date(a.archivedAt || a.updatedAt), 'MMM d, yyyy')}`
+                      : `Joined ${new Date(a.joinDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })}`}
                   </p>
                 </div>
                 <PiCaretRight className="h-4 w-4 shrink-0 text-muted" aria-hidden="true" />
@@ -168,10 +172,20 @@ const Athletes = () => {
         open={dialog.open}
         athlete={dialog.athlete}
         onClose={() => setDialog({ open: false, athlete: null })}
-        onSaved={(data, created) => {
-          if (archived && created) setArchived('active');
-          setAthletes((list) => (created ? [...list, data] : list.map((x) => (x._id === data._id ? data : x))).sort((x, y) => x.name.localeCompare(y.name)));
-          toast.success(created ? `${data.name} added` : 'Athlete updated');
+        onSaved={(data) => {
+          setAthletes((list) => list.map((x) => (x._id === data._id ? data : x)).sort((x, y) => x.name.localeCompare(y.name)));
+          toast.success('Athlete updated');
+        }}
+      />
+      <AddAthletesDialog
+        open={adding}
+        onClose={() => setAdding(false)}
+        onSaved={({ created, skipped }) => {
+          if (archived) setArchived('active');
+          else setAthletes((list) => [...list, ...created].sort((x, y) => x.name.localeCompare(y.name)));
+          const added = created.length === 1 ? `${created[0].name} added` : `${created.length} athletes added`;
+          if (skipped.length) toast(`${created.length ? `${added}. ` : ''}Already on your roster: ${skipped.join(', ')}`, { duration: 5000 });
+          else toast.success(added);
         }}
       />
     </>

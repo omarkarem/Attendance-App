@@ -10,6 +10,7 @@ import { Switch } from '../components/ui/Form';
 import { Segmented } from '../components/ui/Segmented';
 import DateStepper from '../components/DateStepper';
 import cx from '../utils/cx';
+import { joinedBy } from '../utils/athletes';
 
 // Sessions are stored at 12:00 UTC on their calendar day, so read the day in UTC.
 const sessionDay = (s) => new Date(s.date);
@@ -63,30 +64,33 @@ const AttendanceGrid = () => {
     if (!data) return null;
     const sessions = data.sessions.filter((s) => nameFilter === 'all' || s.name === nameFilter);
     const lookup = new Map(data.attendance.map((a) => [`${a.athlete?._id || a.athlete}-${a.session}`, a.present]));
-    const expectedIn = (s, athleteId) => !s.assignedAthletes?.length || s.assignedAthletes.map(String).includes(athleteId);
+    // Expected: on the session's roster (or it has none) and already joined by that day.
+    const expectedIn = (s, athlete) => (!s.assignedAthletes?.length || s.assignedAthletes.map(String).includes(athlete._id))
+      && joinedBy(athlete, new Date(s.date).toISOString().slice(0, 10));
 
-    const stateOf = (s, athleteId) => {
-      const rec = lookup.get(`${athleteId}-${s._id}`);
-      const expected = expectedIn(s, athleteId);
+    const stateOf = (s, athlete) => {
+      const rec = lookup.get(`${athlete._id}-${s._id}`);
+      const expected = expectedIn(s, athlete);
       if (rec === true) return 'present';
       if (rec === false && expected) return 'absent';
       return expected ? 'none' : 'unexpected';
     };
 
     const rows = data.athletes.map((a) => {
-      const states = sessions.map((s) => stateOf(s, a._id));
+      const states = sessions.map((s) => stateOf(s, a));
       const counted = states.filter((x) => x === 'present' || x === 'absent').length;
       const present = states.filter((x) => x === 'present').length;
-      const anyExpected = sessions.some((s) => expectedIn(s, a._id));
+      const anyExpected = sessions.some((s) => expectedIn(s, a));
       return { athlete: a, states, counted, present, pct: counted ? Math.round((present / counted) * 100) : null, anyExpected };
     });
 
     const totals = sessions.map((_, i) => rows.filter((r) => r.states[i] === 'present').length);
-    const hasRosters = sessions.some((s) => s.assignedAthletes?.length);
+    const hasRosters = rows.some((r) => !r.anyExpected);
     return { sessions, rows, totals, hasRosters };
   }, [data, nameFilter]);
 
-  const rows = grid ? grid.rows.filter((r) => !expectedOnly || !grid.hasRosters || r.anyExpected) : [];
+  // Athletes with a record always show, even when they were not expected (walk-ins).
+  const rows = grid ? grid.rows.filter((r) => !expectedOnly || !grid.hasRosters || r.anyExpected || r.counted > 0) : [];
   const multiplePerDay = grid ? new Set(grid.sessions.map(dayNum)).size < grid.sessions.length : false;
 
   const periodTitle = mode === 'month' ? format(anchor, 'MMMM') : `Week of ${format(weekStart, 'MMM d')}`;
@@ -162,6 +166,7 @@ const AttendanceGrid = () => {
                         <Link to={`/athlete/${athlete._id}`} className="flex max-w-[180px] items-center gap-2 hover:underline">
                           <span className="truncate">{athlete.name}</span>
                           {athlete.isNewAthlete && <Badge tone="new">New</Badge>}
+                          {athlete.active === false && <Badge>Archived</Badge>}
                         </Link>
                       </th>
                       {states.map((st, i) => (

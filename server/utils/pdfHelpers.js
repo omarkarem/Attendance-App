@@ -32,10 +32,11 @@ const writeFooter = (doc, color = '#94a3b8') => {
 };
 
 // "All time" exports use a sentinel start date of Jan 1, 2000.
-const isAllTime = (startDate) => startDate.getFullYear() <= 2000;
+const isAllTime = (startDate) => startDate.getUTCFullYear() <= 2000;
 
+// Periods are UTC calendar days (test results are stored at UTC midnight).
 const formatPeriodLabel = (startDate, endDate) => {
-  const opts = { year: 'numeric', month: 'short', day: 'numeric' };
+  const opts = { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' };
   if (isAllTime(startDate)) return `All results up to ${endDate.toLocaleDateString('en-US', opts)}`;
   return `${startDate.toLocaleDateString('en-US', opts)} to ${endDate.toLocaleDateString('en-US', opts)}`;
 };

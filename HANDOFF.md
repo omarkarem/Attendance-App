@@ -152,11 +152,11 @@ server
 | Model | Key fields |
 |---|---|
 | User | name, email (unique), password (bcrypt, `select: false`) |
-| Athlete | name (2 to 50 chars, unique per coach, case-insensitive), coach, isNewAthlete, joinDate, active |
+| Athlete | name (2 to 50 chars, unique per coach, case-insensitive), coach, joinDate (12:00 UTC on the day), active, archivedAt. `isNewAthlete` is computed: joined less than 30 days ago (section 9) |
 | Schedule (template) | name, daysOfWeek [0..6], time `HH:MM`, assignedAthletes, active, **skippedDates** [`yyyy-MM-dd`] (new), **generatedThrough** `yyyy-MM-dd` watermark (new; set to the day before creation, moved past paused days on resume) |
 | Session | name, coach, date (**12:00 UTC on the calendar day**), **time** `HH:MM` (new), scheduleId, **dayKey** (new, generated sessions), assignedAthletes |
 | Attendance | session, athlete, coach, present, date (copied from session); unique (session, athlete) |
-| TestType | title, category Running/Swimming/Cycling/Other, measureType Distance/Time, targetDistance (m), targetTime (s), active |
+| TestType | title, category Running/Swimming/Cycling/Other, measureType Distance/Time, targetDistance (m), targetTime (s), active, plus type 2 history: lineageId, version, validFrom, validTo, isCurrent (section 9) |
 | TestResult | athlete, testType, date (UTC midnight of the chosen day), distance (m), time (s), description, cycling fields |
 
 New index: `Session { scheduleId: 1, dayKey: 1 }`, unique, partial on `dayKey` being a string. Mongoose creates it on boot (autoIndex). Existing data has no `dayKey`, so the index cannot conflict.
@@ -336,8 +336,56 @@ Highest impact first.
 8. CRA (`react-scripts`) is unmaintained. Moving to Vite would speed up dev and builds; nothing in the code depends on CRA specifics.
 9. The server mounts all routes twice (`/api` and `/`) to tolerate misconfigured env vars. Once Vercel env vars are confirmed, keep only `/api`.
 
+---
+
+## 9. Logic fixes and faster workflows (October 20, 2026)
+
+### Logic fixes
+| Area | Problem | Fix |
+|---|---|---|
+| New badge | `isNewAthlete` was a manual flag that stayed on forever | Computed from `joinDate`: New for 30 days. The add/edit forms set the join date (defaults to today; pick an earlier day for athletes who are not new). Old stored flags are ignored |
+| Attendance | Athletes counted as absent for sessions before they joined | Check-in and the grid treat them as not expected before their join day |
+| Attendance | Grid and attendance export dropped archived athletes from past months | Archived athletes with records in the period are included (badged Archived) |
+| Rosters | Choosing athletes on a past template session rewrote the template and every future session | Only sessions from today on update the template |
+| Rosters | Session/template rosters accepted any ids | Filtered to the coach's athletes |
+| Templates | Removing a weekday or pausing left empty future sessions; deleting a template left them too | Upcoming sessions with no attendance are removed; ones with attendance are kept |
+| Templates | A new template had no session until the day was opened | Today's session is created on save |
+| Tests | Editing a test's distance/time silently changed the meaning of every old result (pace, best, change all recomputed against the new definition) | Type 2 history, below |
+| Tests | Server accepted results with any distance on a fixed-distance test, future dates, results for deleted tests, and stored both targets on new types | Fixed targets are filled by the server from the version, future dates and deleted tests rejected, types store only their own target, duplicate test names rejected |
+| Tests | "Other" fixed-time tests reported time instead of distance in PDF/Excel; an unused report mode referenced an undefined variable | Shared `server/utils/testMetrics.js` (mirrors the client metric); unused generators removed |
+| Exports | Test periods used server-local dates | UTC calendar days ending on the coach's today |
+
+### Test types: slowly changing dimension, type 2
+- Every version is its own `TestType` document; versions share `lineageId`. Results point at the exact version they were recorded under.
+- Changing sport, measure type or target **when the current version has results** closes it (`isCurrent: false`, `validTo`) and creates version n+1 (`validFrom` = coach's today). Without results it is corrected in place.
+- Renaming is type 1: the title changes on every version.
+- Recording a result picks the version that applied on the result's date (newest version whose `validFrom` day is on or before it; earlier dates use version 1). The client mirrors this (`versionOn` in `utils/performance.js`) so the form shows the same fixed target.
+- `GET /tests/types` returns current versions only, each with `versions[]` and `resultCount`. Filters (`/tests/results?testTypeId`, export) expand to every version. Reports show one section per version, e.g. "Run test (v1, 3 km)".
+- Existing documents need no migration: no `lineageId` means version 1 of its own lineage, and `validFrom` falls back to `createdAt`.
+
+### Faster workflows
+- **Today**: quick actions to start a session (create and go straight to check-in), add athletes, record a test.
+- **Check-in**: saves automatically about half a second after each tap (no Save button, retry on failure, flushes on leave). Search finds anyone; typing a name nobody has adds them as a new athlete and marks them present. "All present" button while nobody is marked.
+- **Add athletes**: one dialog for one or many names (paste a list; numbering and duplicates are cleaned up), a join date, and the templates they train in (`POST /athletes/bulk`).
+- **Sessions/templates**: pick who is expected in the create dialog, or copy a template's roster; typing a template name in a new session copies its time and roster; "Create and take attendance".
+- **Record test → Whole squad**: choose test, date and group once, type each athlete's result (`532` = 5:32, `5:32`, `1:02:05`, `32.45`), Enter moves to the next athlete, live pace plus last result and better/worse arrow, one Save for everyone (`POST /tests/results/bulk`, all or nothing). "One athlete" mode keeps the old form, now with a single time field.
+
+### New endpoints
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/athletes/bulk` | `{ names[], joinDate?, scheduleIds? }` → `{ created, skipped }` |
+| POST | `/tests/results/bulk` | `{ testTypeId, date, entries: [{ athleteId, distance?, time?, ...cycling }] }` |
+
+`POST /athletes` and `PUT /athletes/:id` take `joinDate` (yyyy-MM-dd); `isNewAthlete` is no longer accepted. Every request (not only GET) now carries `?today=`.
+
+### Tested
+- 46 API checks against a scratch MongoDB 7 (bulk add, New badge, rosters, template day changes, archived athletes in grid, every SCD2 case above, bulk results atomicity, all six exports). PDFs inspected.
+- Browser, desktop and 375px: Today quick actions, start-session flow, check-in autosave and walk-in, squad entry, test type edit warning, bulk add, results with version labels.
+- `CI=true npm run build` passes with no warnings.
+
 ### Deploying this branch
 - No data migration is needed. New fields are optional, older sessions fall back to their template's time, and the new index only covers documents with `dayKey`.
 - Set `CRON_SECRET` in the server's Vercel project to enable the daily cron (`server/vercel.json` schedules it). Without it the endpoint returns 503 and catch-up on read still keeps data complete.
 - Deploy the server first. The new client sends `clearAthleteIds` and reads `extraCount`/`recordCount`, while the server still accepts old clients.
+- Section 9 changes: deploy server and client together (the client calls `/athletes/bulk` and `/tests/results/bulk`). No data migration. Existing athletes keep their `joinDate`, so anyone who joined more than 30 days ago loses the New badge on deploy, and the stored `isNewAthlete` flag is ignored.
 - Fonts are bundled, so no Google Fonts request is made at runtime.

@@ -17,6 +17,8 @@ import { Segmented } from '../components/ui/Segmented';
 import { useConfirm } from '../components/ui/ConfirmProvider';
 import DateStepper from '../components/DateStepper';
 import AssignAthletesDialog from '../components/AssignAthletesDialog';
+import SessionDialog from '../components/SessionDialog';
+import RosterField from '../components/RosterField';
 import cx from '../utils/cx';
 import { presentLabel, rosterLabel } from '../utils/sessions';
 
@@ -27,65 +29,11 @@ const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 // ---------- Forms ----------
 
-const SessionDialog = ({ open, onClose, session, dayKey, onSaved }) => {
-  const [name, setName] = useState('');
-  const [time, setTime] = useState('');
-  const [error, setError] = useState('');
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    if (!open) return;
-    setName(session?.name || '');
-    setTime(session?.time || '');
-    setError('');
-  }, [open, session]);
-
-  const submit = async (e) => {
-    e.preventDefault();
-    if (!name.trim()) { setError('Give the session a name.'); return; }
-    setSaving(true);
-    try {
-      const { data } = session
-        ? await api.put(`/sessions/${session._id}`, { name: name.trim(), time: time || null })
-        : await api.post('/sessions', { name: name.trim(), date: dayKey, time: time || null });
-      onSaved(data, !session);
-      onClose();
-    } catch (err) {
-      setError(apiError(err, 'Could not save the session.'));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      title={session ? 'Edit session' : 'New session'}
-      description={session ? undefined : `One-off session on ${format(keyToDate(dayKey), 'EEEE, MMMM d')}.`}
-      footer={(
-        <>
-          <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button type="submit" form="session-form" loading={saving}>{session ? 'Save changes' : 'Create session'}</Button>
-        </>
-      )}
-    >
-      <form id="session-form" onSubmit={submit} className="flex flex-col gap-5" noValidate>
-        <Field label="Name" htmlFor="session-name" error={error}>
-          <Input id="session-name" value={name} onChange={(e) => { setName(e.target.value); setError(''); }} placeholder="Make-up swim" maxLength={100} aria-invalid={!!error} data-autofocus />
-        </Field>
-        <Field label="Start time" htmlFor="session-time" hint="Optional.">
-          <Input id="session-time" type="time" value={time} onChange={(e) => setTime(e.target.value)} />
-        </Field>
-      </form>
-    </Dialog>
-  );
-};
-
-const TemplateDialog = ({ open, onClose, template, onSaved }) => {
+const TemplateDialog = ({ open, onClose, template, templates = [], onSaved }) => {
   const [name, setName] = useState('');
   const [time, setTime] = useState('');
   const [days, setDays] = useState([]);
+  const [roster, setRoster] = useState(new Set());
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);
 
@@ -94,6 +42,7 @@ const TemplateDialog = ({ open, onClose, template, onSaved }) => {
     setName(template?.name || '');
     setTime(template?.time || '');
     setDays(template?.daysOfWeek || []);
+    setRoster(new Set());
     setErrors({});
   }, [open, template]);
 
@@ -111,7 +60,7 @@ const TemplateDialog = ({ open, onClose, template, onSaved }) => {
     if (Object.keys(next).length) return;
     setSaving(true);
     try {
-      const body = { name: name.trim(), daysOfWeek: days, time: time || null };
+      const body = { name: name.trim(), daysOfWeek: days, time: time || null, ...(template ? {} : { assignedAthletes: [...roster] }) };
       const { data } = template ? await api.put(`/schedules/${template._id}`, body) : await api.post('/schedules', body);
       onSaved(data, !template);
       onClose();
@@ -161,7 +110,14 @@ const TemplateDialog = ({ open, onClose, template, onSaved }) => {
         <Field label="Start time" htmlFor="template-time" hint="Optional. Shown on every generated session.">
           <Input id="template-time" type="time" value={time} onChange={(e) => setTime(e.target.value)} />
         </Field>
-        {template && <p className="text-[12px] text-muted">Changes apply to today and future sessions. Past sessions keep their history.</p>}
+        {!template && (
+          <RosterField
+            value={roster}
+            onChange={setRoster}
+            sources={templates.filter((t) => t.assignedAthletes?.length).map((t) => ({ label: `Same as ${t.name}`, ids: t.assignedAthletes }))}
+          />
+        )}
+        {template && <p className="text-[12px] text-muted">Changes apply to today and future sessions. Past sessions keep their history. Removing a day or pausing removes upcoming sessions nobody has been checked in to.</p>}
         {errors.form && <p role="alert" className="text-[13px] text-danger">{errors.form}</p>}
       </form>
     </Dialog>
@@ -317,7 +273,7 @@ const Sessions = () => {
   const deleteTemplate = async (t) => {
     const ok = await confirm({
       title: 'Delete this template?',
-      body: `No new “${t.name}” sessions will be created. Sessions that already exist, and their attendance, are kept.`,
+      body: `No new “${t.name}” sessions will be created. Past sessions and their attendance are kept; upcoming sessions nobody has been checked in to are removed.`,
       confirmLabel: 'Delete template',
       tone: 'danger'
     });
@@ -336,6 +292,7 @@ const Sessions = () => {
       const { data } = await api.put(`/schedules/${t._id}`, { active: !t.active });
       setTemplates((list) => list.map((x) => (x._id === data._id ? data : x)));
       toast.success(data.active ? 'Template resumed' : 'Template paused. No new sessions until you resume it.');
+      if (view === 'day') loadDay();
     } catch (err) {
       toast.error(apiError(err, 'Could not update the template'));
     }
@@ -359,13 +316,19 @@ const Sessions = () => {
   };
 
   const templateName = (id) => templates.find((t) => t._id === id)?.name;
+  // Editing a past template session only corrects that session; today or later also updates the template.
   const assignDescription = assign
     ? assign.kind === 'template'
       ? 'Expected at every session this template creates from today on.'
-      : assign.entity.scheduleId
+      : assign.entity.scheduleId && dayKey >= todayKey()
         ? `This also updates the “${templateName(assign.entity.scheduleId) || 'parent'}” template for today and future days.`
         : 'Expected at this one session.'
     : '';
+  const assignSources = templates
+    .filter((t) => t.assignedAthletes?.length && t._id !== assign?.entity._id)
+    .map((t) => ({ label: `Same as ${t.name}`, ids: t.assignedAthletes }));
+
+  const openCheckIn = (id) => navigate(`/checkin/${id}`, { state: { from: `/sessions${isToday ? '' : `?date=${dayKey}`}` } });
 
   const primary = view === 'day'
     ? <Button icon={PiPlus} onClick={() => setSessionDialog({ open: true, session: null })}>New session</Button>
@@ -422,7 +385,7 @@ const Sessions = () => {
                 <SessionRow
                   key={s._id}
                   session={s}
-                  onCheckIn={() => navigate(`/checkin/${s._id}`, { state: { from: `/sessions${isToday ? '' : `?date=${dayKey}`}` } })}
+                  onCheckIn={() => openCheckIn(s._id)}
                   onEdit={() => setSessionDialog({ open: true, session: s })}
                   onAssign={() => setAssign({ kind: 'session', entity: s })}
                   onDelete={() => deleteSession(s)}
@@ -473,8 +436,10 @@ const Sessions = () => {
         open={sessionDialog.open}
         session={sessionDialog.session}
         dayKey={dayKey}
+        templates={templates}
         onClose={() => setSessionDialog({ open: false, session: null })}
-        onSaved={(data, created) => {
+        onSaved={(data, created, { checkIn }) => {
+          if (created && checkIn) { openCheckIn(data._id); return; }
           setSessions((list) => (created ? [...list, data] : list.map((x) => (x._id === data._id ? { ...x, ...data } : x)))
             .sort((a, b) => (a.time || '99:99').localeCompare(b.time || '99:99')));
           toast.success(created ? 'Session created' : 'Session updated');
@@ -483,6 +448,7 @@ const Sessions = () => {
       <TemplateDialog
         open={templateDialog.open}
         template={templateDialog.template}
+        templates={templates}
         onClose={() => setTemplateDialog({ open: false, template: null })}
         onSaved={(data, created) => {
           setTemplates((list) => (created ? [data, ...list] : list.map((x) => (x._id === data._id ? data : x))));
@@ -496,6 +462,7 @@ const Sessions = () => {
         title={assign ? `Athletes for ${assign.entity.name}` : ''}
         description={assignDescription}
         initialIds={assign?.entity.assignedAthletes || []}
+        sources={assignSources}
         onSave={saveAssignment}
       />
     </>

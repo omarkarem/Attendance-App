@@ -15,14 +15,17 @@ export const categoryMeta = (category) => CATEGORY_META[category] || CATEGORY_ME
 
 const pad = (n) => n.toString().padStart(2, '0');
 
-// 1500 -> "25:00", 3725 -> "1:02:05"
+// 1500 -> "25:00", 3725 -> "1:02:05", 32.45 -> "0:32.45" (hundredths kept for sprints)
 export const formatTime = (totalSeconds) => {
   if (totalSeconds == null || Number.isNaN(totalSeconds)) return '-';
-  const t = Math.round(totalSeconds);
+  const hundredths = Math.round(totalSeconds * 100);
+  const t = Math.floor(hundredths / 100);
+  const frac = hundredths % 100;
   const h = Math.floor(t / 3600);
   const m = Math.floor((t % 3600) / 60);
   const s = t % 60;
-  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+  const sec = frac ? `${pad(s)}.${pad(frac)}` : pad(s);
+  return h > 0 ? `${h}:${pad(m)}:${sec}` : `${m}:${sec}`;
 };
 
 export const formatDistance = (meters) => {
@@ -76,6 +79,74 @@ export const toSeconds = ({ h, m, s }) => (parseInt(h, 10) || 0) * 3600 + (parse
 export const fromSeconds = (total) => {
   const t = Math.max(0, Math.round(total || 0));
   return { h: String(Math.floor(t / 3600)), m: String(Math.floor((t % 3600) / 60)), s: String(t % 60) };
+};
+
+/**
+ * Parses a typed duration and returns seconds, or null when it cannot be read.
+ * - Colons: "5:32", "1:02:05", "0:32.45"
+ * - Stopwatch digits (phone keypads have no colon): the last two digits are seconds,
+ *   the two before are minutes, the rest hours. "532" = 5:32, "2215" = 22:15,
+ *   "10512" = 1:05:12, "45" = 45 s, "32.45" = 32.45 s.
+ * - Units: "12m 30s", "1h 5m"
+ */
+export const parseDuration = (text) => {
+  const s = String(text || '').trim().toLowerCase().replace(/,/g, '.');
+  if (!s) return null;
+
+  const units = s.match(/^(?:(\d+(?:\.\d+)?)\s*h)?\s*(?:(\d+(?:\.\d+)?)\s*m(?:in)?)?\s*(?:(\d+(?:\.\d+)?)\s*s(?:ec)?)?$/);
+  if (units && (units[1] || units[2] || units[3])) {
+    return parseFloat(units[1] || 0) * 3600 + parseFloat(units[2] || 0) * 60 + parseFloat(units[3] || 0);
+  }
+
+  if (/^\d+(:\d{1,2}){1,2}(\.\d+)?$/.test(s)) {
+    const parts = s.split(':').map(Number);
+    if (parts.slice(1).some((n) => n >= 60)) return null;
+    return parts.reduce((total, n) => total * 60 + n, 0);
+  }
+
+  const digits = s.match(/^(\d+)(\.\d+)?$/);
+  if (!digits) return null;
+  const [, whole, fraction = ''] = digits;
+  const sec = parseInt(whole.slice(-2), 10);
+  const min = whole.length > 2 ? parseInt(whole.slice(-4, -2), 10) : 0;
+  const hrs = whole.length > 4 ? parseInt(whole.slice(0, -4), 10) : 0;
+  if (whole.length > 2 && (sec >= 60 || min >= 60)) return null;
+  return hrs * 3600 + min * 60 + sec + (fraction ? parseFloat(fraction) : 0);
+};
+
+/** Distance typed in the given unit ("km" or "m") to meters; null when unreadable. */
+export const parseDistance = (text, unit) => {
+  const v = parseFloat(String(text || '').replace(',', '.'));
+  if (!Number.isFinite(v)) return null;
+  return unit === 'km' ? v * 1000 : v;
+};
+
+// ---------- Test type versions (history kept on the server, type 2) ----------
+
+/** The id shared by every version of a test. */
+export const lineageOf = (t) => (t ? String(t.lineageId || t._id) : '');
+
+export const describeTarget = (t) => (t?.measureType === 'Distance'
+  ? (t.targetDistance ? formatDistance(t.targetDistance) : 'distance not set')
+  : (t?.targetTime ? formatTime(t.targetTime) : 'time not set'));
+
+/** "v1 · 3 km" for older versions; empty for a test that was never redefined. */
+export const versionLabel = (t) => {
+  if (!t || ((t.version || 1) === 1 && t.isCurrent !== false)) return '';
+  return `v${t.version || 1} · ${describeTarget(t)}`;
+};
+
+/**
+ * The version of `testType` (a current type from /tests/types, with `versions`) that
+ * applied on `dayKey`: the newest one that had started by then, else the first one.
+ * Mirrors the server, so previews show the same fixed target that will be saved.
+ */
+export const versionOn = (testType, dayKey) => {
+  const versions = testType?.versions;
+  if (!versions || versions.length === 0 || !dayKey) return testType;
+  let chosen = versions[0];
+  versions.forEach((v) => { if (resultDateInput(v.validFrom) <= dayKey) chosen = v; });
+  return { ...testType, ...chosen, title: testType.title, versions };
 };
 
 // Test result dates are calendar dates saved as UTC midnight, so read them back in UTC.

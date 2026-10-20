@@ -2,8 +2,11 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { PiCalendarDots, PiArrowRight, PiUsersThree, PiPlus, PiWarningCircle, PiClock } from 'react-icons/pi';
+import toast from 'react-hot-toast';
+import { PiCalendarDots, PiArrowRight, PiUsersThree, PiPlus, PiWarningCircle, PiClock, PiLightning, PiUserPlus, PiTimer } from 'react-icons/pi';
 import api from '../utils/api';
+import SessionDialog from '../components/SessionDialog';
+import AddAthletesDialog from '../components/AddAthletesDialog';
 import useAuth from '../hooks/useAuth';
 import usePageTitle from '../hooks/usePageTitle';
 import { Card, CardHeader, PageHeader, Spotlight, Stat, Avatar, Badge, Skeleton, EmptyState } from '../components/ui/Display';
@@ -25,7 +28,25 @@ const barTone = (pct) => (pct >= 75 ? 'bg-success' : pct < 50 ? 'bg-danger' : 'b
 
 const LIST_LIMIT = 8;
 
-const TodayCard = ({ sessions, onCheckIn }) => (
+const QuickAction = ({ icon: Icon, label, sub, onClick, to }) => {
+  const body = (
+    <>
+      <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-surface-2 text-ink">
+        <Icon className="h-5 w-5" aria-hidden="true" />
+      </span>
+      <span className="min-w-0 flex-1 text-left">
+        <span className="block truncate text-[14px] font-semibold">{label}</span>
+        <span className="block truncate text-[12px] text-muted">{sub}</span>
+      </span>
+    </>
+  );
+  const className = 'flex min-h-[64px] items-center gap-3 rounded-lg bg-surface-1 px-3.5 py-3 transition-colors hover:bg-surface-2/70 active:scale-[0.99]';
+  return to
+    ? <Link to={to} className={className}>{body}</Link>
+    : <button type="button" onClick={onClick} className={className}>{body}</button>;
+};
+
+const TodayCard = ({ sessions, onCheckIn, onStart }) => (
   <Spotlight tone="violet" className="p-6 md:p-8">
     <div className="grid gap-8 md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] md:items-end">
       <div>
@@ -56,10 +77,8 @@ const TodayCard = ({ sessions, onCheckIn }) => (
       ) : (
         <div className="rounded-lg bg-black/25 p-5 backdrop-blur">
           <p className="text-[15px] font-semibold">Nothing on the plan today</p>
-          <p className="mt-1 text-[14px] text-white/75">Add a one-off session, or set up a recurring template so days fill in automatically.</p>
-          <Link to="/sessions" className="mt-4 inline-block">
-            <Button size="sm" icon={PiPlus}>Plan a session</Button>
-          </Link>
+          <p className="mt-1 text-[14px] text-white/75">Training anyway? Start a session and check athletes in straight away.</p>
+          <Button size="sm" icon={PiPlus} onClick={onStart} className="mt-4">Start a session</Button>
         </div>
       )}
     </div>
@@ -85,6 +104,9 @@ const Dashboard = () => {
   const [status, setStatus] = useState('loading');
   const [sort, setSort] = useState('attention');
   const [showAll, setShowAll] = useState(false);
+  const [templates, setTemplates] = useState([]);
+  const [startOpen, setStartOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
 
   const today = format(new Date(), 'yyyy-MM-dd');
 
@@ -93,9 +115,13 @@ const Dashboard = () => {
     try {
       // Stats first: it also generates today's template sessions.
       const { data } = await api.get(`/attendance/stats?date=${today}`);
-      const { data: sessions } = await api.get(`/sessions?date=${today}`);
+      const [{ data: sessions }, schedules] = await Promise.all([
+        api.get(`/sessions?date=${today}`),
+        api.get('/schedules').catch(() => ({ data: [] }))
+      ]);
       setStats(data);
       setTodaySessions(sessions);
+      setTemplates(schedules.data.filter((t) => t.active));
       setStatus('ready');
     } catch {
       setStatus('error');
@@ -146,7 +172,13 @@ const Dashboard = () => {
       />
 
       <div className="animate-rise">
-        <TodayCard sessions={todaySessions} onCheckIn={(id) => navigate(`/checkin/${id}`)} />
+        <TodayCard sessions={todaySessions} onCheckIn={(id) => navigate(`/checkin/${id}`)} onStart={() => setStartOpen(true)} />
+      </div>
+
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <QuickAction icon={PiLightning} label="Start a session" sub="Create it and check in now" onClick={() => setStartOpen(true)} />
+        <QuickAction icon={PiUserPlus} label="Add athletes" sub="Paste a list of names" onClick={() => setAddOpen(true)} />
+        <QuickAction icon={PiTimer} label="Record a test" sub="Whole squad on one screen" to="/tests" />
       </div>
 
       <Card className="grid grid-cols-2 gap-x-6 gap-y-6 p-5 md:grid-cols-4 md:p-6">
@@ -253,6 +285,27 @@ const Dashboard = () => {
           )}
         </Card>
       </div>
+
+      <SessionDialog
+        open={startOpen}
+        dayKey={today}
+        templates={templates}
+        onClose={() => setStartOpen(false)}
+        onSaved={(data, created, { checkIn }) => {
+          if (checkIn) navigate(`/checkin/${data._id}`, { state: { from: '/' } });
+          else { toast.success('Session created'); load(); }
+        }}
+      />
+      <AddAthletesDialog
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        onSaved={({ created, skipped }) => {
+          const added = created.length === 1 ? `${created[0].name} added` : `${created.length} athletes added`;
+          if (skipped.length) toast(`${created.length ? `${added}. ` : ''}Already on your roster: ${skipped.join(', ')}`, { duration: 5000 });
+          else toast.success(added);
+          load();
+        }}
+      />
     </div>
   );
 };

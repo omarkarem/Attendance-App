@@ -2,6 +2,7 @@ const express = require('express');
 const Session = require('../models/Session');
 const Schedule = require('../models/Schedule');
 const Attendance = require('../models/Attendance');
+const Athlete = require('../models/Athlete');
 const auth = require('../middleware/auth');
 const { parseDayKey, dayRange, noonUtc, toDayKey, clientToday } = require('../utils/dates');
 const { ensureScheduledSessions, backfillScheduledSessions } = require('../utils/sessionGenerator');
@@ -12,6 +13,15 @@ const router = express.Router();
 router.use(auth);
 
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+// Keeps only ids of athletes that belong to the coach (deduplicated); null if the input is not a list.
+const ownedAthletes = async (coach, ids) => {
+  if (!Array.isArray(ids)) return null;
+  const unique = [...new Set(ids.map(String))];
+  if (unique.length === 0) return [];
+  const owned = await Athlete.find({ _id: { $in: unique }, coach }).select('_id');
+  return owned.map((a) => a._id);
+};
 
 // Attach present/total counts to a list of sessions with one aggregate query.
 const withCounts = async (sessions) => {
@@ -98,10 +108,10 @@ router.post('/', async (req, res) => {
       coach: req.user._id,
       date: noonUtc(dayKey),
       time: time || null,
-      assignedAthletes: assignedAthletes || []
+      assignedAthletes: (await ownedAthletes(req.user._id, assignedAthletes)) || []
     });
 
-    res.status(201).json({ ...session.toObject(), presentCount: 0, totalCount: 0 });
+    res.status(201).json({ ...session.toObject(), presentCount: 0, totalCount: 0, extraCount: 0, recordCount: 0 });
   } catch (error) {
     res.status(500).json({ message: error.message || 'Error creating session.' });
   }
@@ -140,18 +150,22 @@ router.put('/:id', async (req, res) => {
       session.time = time || null;
     }
     if (assignedAthletes !== undefined) {
-      session.assignedAthletes = assignedAthletes;
+      const roster = await ownedAthletes(req.user._id, assignedAthletes);
+      if (!roster) return res.status(400).json({ message: 'Athletes must be a list.' });
+      session.assignedAthletes = roster;
 
       // A session generated from a template shares its roster: the template is updated
-      // so the athlete profile and future sessions match. Past sessions are left alone.
-      if (session.scheduleId) {
+      // so the athlete profile and future sessions match. Past sessions are left alone,
+      // and so is the template when an old session is edited after the fact.
+      const today = clientToday(req.query.today);
+      if (session.scheduleId && toDayKey(session.date) >= today) {
         await Schedule.findOneAndUpdate(
           { _id: session.scheduleId, coach: req.user._id },
-          { $set: { assignedAthletes } }
+          { $set: { assignedAthletes: roster } }
         );
         await Session.updateMany(
-          { coach: req.user._id, scheduleId: session.scheduleId, date: { $gte: dayRange(toDayKey(new Date())).start } },
-          { $set: { assignedAthletes } }
+          { coach: req.user._id, scheduleId: session.scheduleId, date: { $gte: dayRange(today).start } },
+          { $set: { assignedAthletes: roster } }
         );
       }
     }

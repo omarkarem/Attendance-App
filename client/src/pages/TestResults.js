@@ -14,7 +14,7 @@ import { Segmented } from '../components/ui/Segmented';
 import { useConfirm } from '../components/ui/ConfirmProvider';
 import PerformanceTabs from '../components/PerformanceTabs';
 import ResultFields, { formFromResult, validateResult, buildPayload, ResultPreview } from '../components/ResultFields';
-import { CATEGORIES, categoryMeta, formatDistance, formatTime, formatPace, formatResultDate } from '../utils/performance';
+import { CATEGORIES, categoryMeta, formatDistance, formatTime, formatPace, formatResultDate, lineageOf, versionLabel } from '../utils/performance';
 
 const PAGE = 40;
 
@@ -35,7 +35,7 @@ const EditResultDialog = ({ result, onClose, athletes, testTypes, onSaved }) => 
   const [attempted, setAttempted] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => { if (result) { setForm(formFromResult(result)); setAttempted(false); } }, [result]);
+  useEffect(() => { if (result) { setForm(formFromResult(result, testTypes)); setAttempted(false); } }, [result, testTypes]);
   if (!result || !form) return null;
 
   const testType = testTypes.find((t) => t._id === form.testTypeId) || result.testType;
@@ -114,13 +114,15 @@ const TestResults = () => {
   useEffect(() => { load(); }, [load]);
   useEffect(() => { setLimit(PAGE); }, [search, category, typeId]);
 
+  // A test filter matches every version of that test.
+  const typeLineage = lineageOf(testTypes.find((t) => t._id === typeId));
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return results.filter((r) =>
       (category === 'All' || r.testType?.category === category)
-      && (!typeId || r.testType?._id === typeId)
+      && (!typeId || lineageOf(r.testType) === typeLineage)
       && (!q || (r.athlete?.name || '').toLowerCase().includes(q)));
-  }, [results, search, category, typeId]);
+  }, [results, search, category, typeId, typeLineage]);
 
   const typesInCategory = testTypes.filter((t) => category === 'All' || t.category === category);
   const shown = filtered.slice(0, limit);
@@ -216,6 +218,7 @@ const TestResults = () => {
                       </td>
                       <td className="px-3 py-3">
                         <span className="inline-flex items-center gap-1.5"><Icon className="h-4 w-4 text-muted" aria-hidden="true" />{r.testType?.title || 'Deleted test'}</span>
+                        {versionLabel(r.testType) && <span className="mt-0.5 block text-[12px] text-muted">{versionLabel(r.testType)}</span>}
                       </td>
                       <td className="whitespace-nowrap px-3 py-3 text-right tabular-nums">{formatDistance(r.distance)}</td>
                       <td className="whitespace-nowrap px-3 py-3 text-right tabular-nums">{formatTime(r.time)}</td>
@@ -237,7 +240,7 @@ const TestResults = () => {
                   <span className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-2"><Icon className="h-[18px] w-[18px]" aria-hidden="true" /></span>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-[15px] font-medium">{r.athlete?.name || 'Deleted athlete'}</p>
-                    <p className="truncate text-[13px] text-muted">{r.testType?.title || 'Deleted test'} · {formatResultDate(r.date)}</p>
+                    <p className="truncate text-[13px] text-muted">{r.testType?.title || 'Deleted test'}{versionLabel(r.testType) && ` (${versionLabel(r.testType)})`} · {formatResultDate(r.date)}</p>
                     <p className="mt-2 text-[14px] tabular-nums">
                       <span className="font-semibold">{formatPace(r.distance, r.time, r.testType)}</span>
                       <span className="text-muted"> · {formatDistance(r.distance)} in {formatTime(r.time)}</span>

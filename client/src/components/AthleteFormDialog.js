@@ -1,35 +1,42 @@
 import React, { useEffect, useState } from 'react';
 import api from '../utils/api';
 import { apiError } from '../utils/browser';
+import { joinKey, todayKey, NEW_ATHLETE_DAYS } from '../utils/athletes';
 import Dialog from './ui/Dialog';
 import Button from './ui/Button';
-import { Field, Input, Switch } from './ui/Form';
+import { Field, Input } from './ui/Form';
 
+/** Edit an athlete's name and join date. */
 const AthleteFormDialog = ({ open, onClose, athlete, onSaved }) => {
   const [name, setName] = useState('');
-  const [isNew, setIsNew] = useState(false);
-  const [error, setError] = useState('');
+  const [joined, setJoined] = useState('');
+  const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setName(athlete?.name || '');
-    setIsNew(athlete ? !!athlete.isNewAthlete : true);
-    setError('');
+    setJoined(joinKey(athlete) || todayKey());
+    setErrors({});
   }, [open, athlete]);
 
   const submit = async (e) => {
     e.preventDefault();
     const trimmed = name.trim();
-    if (trimmed.length < 2) { setError('Enter at least 2 characters.'); return; }
+    const next = {};
+    if (trimmed.length < 2) next.name = 'Enter at least 2 characters.';
+    if (!joined) next.joined = 'Pick the day they joined.';
+    else if (joined > todayKey()) next.joined = 'The join date cannot be in the future.';
+    setErrors(next);
+    if (Object.keys(next).length) return;
     setSaving(true);
     try {
-      const body = { name: trimmed, isNewAthlete: isNew };
+      const body = { name: trimmed, joinDate: joined };
       const { data } = athlete ? await api.put(`/athletes/${athlete._id}`, body) : await api.post('/athletes', body);
       onSaved(data, !athlete);
       onClose();
     } catch (err) {
-      setError(apiError(err, 'Could not save the athlete.'));
+      setErrors({ name: apiError(err, 'Could not save the athlete.') });
     } finally {
       setSaving(false);
     }
@@ -49,16 +56,17 @@ const AthleteFormDialog = ({ open, onClose, athlete, onSaved }) => {
       )}
     >
       <form id="athlete-form" onSubmit={submit} className="flex flex-col gap-5" noValidate>
-        <Field label="Full name" htmlFor="athlete-name" error={error}>
-          <Input id="athlete-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={50} autoComplete="off" aria-invalid={!!error} data-autofocus />
+        <Field label="Full name" htmlFor="athlete-name" error={errors.name}>
+          <Input id="athlete-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={50} autoComplete="off" aria-invalid={!!errors.name} data-autofocus />
         </Field>
-        <div className="flex items-center justify-between gap-4 rounded-lg bg-surface-2 p-4">
-          <div>
-            <p className="text-[14px] font-medium" id="athlete-new-label">New athlete</p>
-            <p className="mt-0.5 text-[12px] text-muted">Shows a New badge so the squad knows to welcome them.</p>
-          </div>
-          <Switch checked={isNew} onChange={setIsNew} label="New athlete" />
-        </div>
+        <Field
+          label="Joined on"
+          htmlFor="athlete-joined"
+          error={errors.joined}
+          hint={`The New badge shows for ${NEW_ATHLETE_DAYS} days after this date. Sessions before it do not count against them.`}
+        >
+          <Input id="athlete-joined" type="date" value={joined} max={todayKey()} onChange={(e) => setJoined(e.target.value)} aria-invalid={!!errors.joined} />
+        </Field>
       </form>
     </Dialog>
   );

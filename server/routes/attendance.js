@@ -65,7 +65,7 @@ router.get('/session/:sessionId', async (req, res) => {
     const attendance = await Attendance.find({
       session: req.params.sessionId,
       coach: req.user._id
-    }).populate('athlete', 'name isNewAthlete joinDate active');
+    }).populate('athlete', 'name joinDate active');
 
     res.json(attendance);
   } catch (error) {
@@ -79,7 +79,9 @@ const gridPayload = async (coachId, start, end) => {
     session: { $in: sessions.map((s) => s._id) },
     coach: coachId
   }).select('session athlete present');
-  const athletes = await Athlete.find({ coach: coachId, active: true }).sort({ name: 1 });
+  // Archived athletes stay in the grid for periods where they were recorded.
+  const recorded = [...new Set(attendance.map((a) => String(a.athlete)))];
+  const athletes = await Athlete.find({ coach: coachId, $or: [{ active: true }, { _id: { $in: recorded } }] }).sort({ name: 1 });
   return { sessions, attendance, athletes };
 };
 

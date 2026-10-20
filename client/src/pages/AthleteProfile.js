@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import {
@@ -18,7 +17,7 @@ import { Segmented } from '../components/ui/Segmented';
 import { useConfirm } from '../components/ui/ConfirmProvider';
 import { AXIS, GRID, ChartTooltip, ChartFrame } from '../components/ui/Chart';
 import AthleteFormDialog from '../components/AthleteFormDialog';
-import { CATEGORIES, categoryMeta, metricFor, formatDistance, formatTime, formatPace, formatResultDate } from '../utils/performance';
+import { CATEGORIES, categoryMeta, metricFor, formatDistance, formatTime, formatPace, formatResultDate, versionLabel } from '../utils/performance';
 import cx from '../utils/cx';
 
 const EnrollDialog = ({ open, onClose, athlete, schedules, onEnroll }) => {
@@ -225,7 +224,9 @@ const AthleteProfile = () => {
                 {!athlete.active && <Badge tone="onColor">Archived</Badge>}
               </div>
               <h1 className="mt-1 font-display text-[32px] font-medium leading-[1] tracking-[-0.05em] md:text-[44px]">{athlete.name}</h1>
-              <p className="mt-2 text-[14px] text-white/80">Joined {format(new Date(athlete.joinDate), 'MMMM d, yyyy')}</p>
+              <p className="mt-2 text-[14px] text-white/80">
+                Joined {new Date(athlete.joinDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' })}
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -334,7 +335,7 @@ const AthleteProfile = () => {
               label="Test"
               value={typeId}
               onChange={setTypeId}
-              options={testTypes.map((t) => ({ value: t._id, label: t.title, icon: categoryMeta(t.category).Icon }))}
+              options={testTypes.map((t) => ({ value: t._id, label: versionLabel(t) ? `${t.title} (${versionLabel(t)})` : t.title, icon: categoryMeta(t.category).Icon }))}
               className="mt-4"
             />
             {summary && (
@@ -402,7 +403,10 @@ const AthleteProfile = () => {
                 <li key={r._id} className="flex items-start gap-3 py-3">
                   <span className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-2"><Icon className="h-[18px] w-[18px]" aria-hidden="true" /></span>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-[15px] font-medium">{r.testType?.title || 'Deleted test'}</p>
+                    <p className="truncate text-[15px] font-medium">
+                      {r.testType?.title || 'Deleted test'}
+                      {versionLabel(r.testType) && <span className="font-normal text-muted"> · {versionLabel(r.testType)}</span>}
+                    </p>
                     <p className="text-[13px] text-muted">{formatResultDate(r.date)} · {formatDistance(r.distance)} in {formatTime(r.time)}</p>
                     {r.description && <p className="mt-1 text-[13px] text-muted">{r.description}</p>}
                   </div>

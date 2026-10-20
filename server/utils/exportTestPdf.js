@@ -1,44 +1,6 @@
 const PDFDocument = require('pdfkit');
 const { writeFooter, isAllTime, formatPeriodLabel } = require('./pdfHelpers');
-
-// ── Shared helpers ──
-
-const formatTime = (totalSeconds) => {
-  const h = Math.floor(totalSeconds / 3600);
-  const m = Math.floor((totalSeconds % 3600) / 60);
-  const s = totalSeconds % 60;
-  return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-};
-
-const formatPace = (distanceMeters, timeSeconds, category) => {
-  if (!distanceMeters || !timeSeconds) return '-';
-  if (category === 'Running') {
-    const distKm = distanceMeters / 1000;
-    const timeMins = timeSeconds / 60;
-    const pace = timeMins / distKm;
-    const mins = Math.floor(pace);
-    const secs = Math.round((pace - mins) * 60);
-    return `${mins}:${secs.toString().padStart(2, '0')} min/km`;
-  } else if (category === 'Swimming') {
-    const dist100 = distanceMeters / 100;
-    const timeMins = timeSeconds / 60;
-    const pace = timeMins / dist100;
-    const mins = Math.floor(pace);
-    const secs = Math.round((pace - mins) * 60);
-    return `${mins}:${secs.toString().padStart(2, '0')} min/100m`;
-  } else if (category === 'Cycling') {
-    const distKm = distanceMeters / 1000;
-    const timeH = timeSeconds / 3600;
-    return `${(distKm / timeH).toFixed(2)} km/h`;
-  }
-  return formatTime(timeSeconds);
-};
-
-const formatDistance = (meters) => {
-  if (meters >= 1000) return `${(meters / 1000).toFixed(2)} km`;
-  return `${meters} m`;
-};
-
+const { formatTime, formatDistance, metricFor, formatMetric, formatRaw, metricUnit, improvement, versionedTitle } = require('./testMetrics');
 
 // ── Colors ──
 const C = {
@@ -49,13 +11,11 @@ const C = {
   accentLight: '#eef2ff',
   green: '#16a34a',
   red: '#dc2626',
-  amber: '#f59e0b',
   muted: '#94a3b8',
   subtitle: '#64748b',
   rowEven: '#f8f9fa',
   rowOdd: '#ffffff',
   border: '#e2e8f0',
-  cardBg: '#f1f5f9',
 };
 
 // Category colors for visual badges
@@ -66,875 +26,286 @@ const categoryColors = {
   Other: '#a855f7',
 };
 
+const shortDate = (d, withYear = true) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', ...(withYear ? { year: 'numeric' } : {}), timeZone: 'UTC' });
+const unitSuffix = (testType) => (metricUnit(testType) ? ` (${metricUnit(testType)})` : '');
+const changeText = (pct) => (pct == null ? '-' : `${pct >= 0 ? '+' : ''}${pct}%`);
+const changeColor = (pct) => (pct == null ? C.muted : pct >= 0 ? C.green : C.red);
+const valuesOf = (results, testType) => results.map((r) => metricFor(testType).value(r)).filter(Number.isFinite);
+const bestOf = (values, testType) => (values.length ? (metricFor(testType).lowerIsBetter ? Math.min(...values) : Math.max(...values)) : null);
+const fmtValue = (v, testType) => (v == null ? '-' : metricFor(testType).format(v));
+const average = (values) => (values.length ? values.reduce((a, b) => a + b, 0) / values.length : null);
+const mean = (list) => (list.length ? Math.round(list.reduce((a, b) => a + b, 0) / list.length) : null);
+
+const drawStatCards = (doc, cards, cardW = 115) => {
+  const cardH = 40;
+  const gap = 14;
+  const y = doc.y;
+  const startX = (doc.page.width - (cardW * cards.length + gap * (cards.length - 1))) / 2;
+  cards.forEach(([label, value, color], i) => {
+    const x = startX + i * (cardW + gap);
+    doc.roundedRect(x, y, cardW, cardH, 6).fill(C.accentLight);
+    doc.fontSize(8).font('Helvetica').fillColor(C.subtitle).text(label, x, y + 6, { width: cardW, align: 'center' });
+    doc.fontSize(16).font('Helvetica-Bold').fillColor(color || C.accent).text(String(value), x, y + 19, { width: cardW, align: 'center' });
+  });
+  doc.y = y + cardH + 20;
+};
+
+// Draws one table row of [text, width, { align, font, color }] cells, each clipped to one line.
+const drawCells = (doc, y, cells, startX = 30) => {
+  let x = startX;
+  cells.forEach(([text, width, opts = {}]) => {
+    const size = opts.size || 7;
+    const pad = opts.pad ?? 0;
+    doc.fontSize(size).font(opts.font || 'Helvetica').fillColor(opts.color || C.primary)
+      .text(String(text), x + pad, y, { width: width - pad - 2, height: size + 3, align: opts.align || 'center', ellipsis: true });
+    x += width;
+  });
+};
+
 // ═══════════════════════════════════════════
 // MODE 1: Single Athlete - all tests
 // ═══════════════════════════════════════════
 
 const generateAthleteTestPdf = (data) => {
-  const { athlete, results, testTypes, startDate, endDate } = data;
-
+  const { athlete, results, startDate, endDate } = data;
   const doc = new PDFDocument({ margin: 30, size: 'A4', layout: 'portrait' });
+  const width = doc.page.width - 60;
 
-  // ── Title ──
-  doc.rect(30, 20, doc.page.width - 60, 4).fill(C.accent);
-
-  doc.fontSize(22).font('Helvetica-Bold').fillColor(C.primary)
-    .text('Athlete Test Report', 30, 34, { align: 'center' });
-
-  doc.fontSize(14).font('Helvetica-Bold').fillColor(C.accent)
-    .text(athlete.name, { align: 'center' });
-
-  doc.fontSize(10).font('Helvetica').fillColor(C.subtitle)
-    .text(formatPeriodLabel(startDate, endDate), { align: 'center' });
-
+  doc.rect(30, 20, width, 4).fill(C.accent);
+  doc.fontSize(22).font('Helvetica-Bold').fillColor(C.primary).text('Athlete Test Report', 30, 34, { align: 'center' });
+  doc.fontSize(14).font('Helvetica-Bold').fillColor(C.accent).text(athlete.name, { align: 'center' });
+  doc.fontSize(10).font('Helvetica').fillColor(C.subtitle).text(formatPeriodLabel(startDate, endDate), { align: 'center' });
   doc.moveDown(0.6);
 
-  // ── Summary Cards ──
-  const totalTests = results.length;
-  const uniqueTypes = [...new Set(results.map(r => r.testType?._id?.toString()))].length;
-
-  const cardY = doc.y;
-  const cardW = 120;
-  const cardH = 40;
-  const cardGap = 16;
-  const totalCardW = cardW * 3 + cardGap * 2;
-  const cardStartX = (doc.page.width - totalCardW) / 2;
-
-  const drawStatCard = (x, y, label, value, color) => {
-    doc.roundedRect(x, y, cardW, cardH, 6).fill(C.accentLight);
-    doc.fontSize(8).font('Helvetica').fillColor(C.subtitle)
-      .text(label, x, y + 6, { width: cardW, align: 'center' });
-    doc.fontSize(16).font('Helvetica-Bold').fillColor(color || C.accent)
-      .text(value.toString(), x, y + 19, { width: cardW, align: 'center' });
-  };
-
-  drawStatCard(cardStartX, cardY, 'Total Tests', totalTests);
-  drawStatCard(cardStartX + cardW + cardGap, cardY, 'Test Types', uniqueTypes);
-  drawStatCard(cardStartX + (cardW + cardGap) * 2, cardY, 'Period', isAllTime(startDate) ? 'All' : `${Math.ceil((endDate - startDate) / 86400000)}d`, C.subtitle);
-
-  doc.y = cardY + cardH + 20;
-
-  // ── Group results by test type ──
-  const grouped = {};
-  results.forEach(r => {
-    const typeId = r.testType?._id?.toString() || 'unknown';
-    if (!grouped[typeId]) grouped[typeId] = [];
-    grouped[typeId].push(r);
+  // Each test version is its own group: different definitions are not compared.
+  const grouped = new Map();
+  results.forEach((r) => {
+    const key = r.testType?._id?.toString() || 'unknown';
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key).push(r);
   });
 
-  // Process each test type group
-  Object.keys(grouped).forEach((typeId) => {
-    const typeResults = grouped[typeId].sort((a, b) => new Date(a.date) - new Date(b.date));
+  drawStatCards(doc, [
+    ['Total Tests', results.length],
+    ['Test Types', grouped.size],
+    ['Period', isAllTime(startDate) ? 'All' : `${Math.ceil((endDate - startDate) / 86400000)}d`, C.subtitle]
+  ], 120);
+
+  const col = { date: 80, distance: 80, time: 80, pace: 110 };
+  col.desc = width - col.date - col.distance - col.time - col.pace;
+
+  grouped.forEach((group) => {
+    const typeResults = [...group].sort((a, b) => new Date(a.date) - new Date(b.date));
     const testType = typeResults[0]?.testType;
-    const typeName = testType?.title || 'Unknown Test';
     const category = testType?.category || 'Other';
     const catColor = categoryColors[category] || categoryColors.Other;
+    const values = typeResults.map((r) => metricFor(testType).value(r));
+    const best = bestOf(values.filter(Number.isFinite), testType);
 
-    // Check page space
-    if (doc.y + 80 > doc.page.height - 50) {
-      doc.addPage();
-      doc.y = 30;
-    }
+    if (doc.y + 80 > doc.page.height - 50) { doc.addPage(); doc.y = 30; }
 
-    // ── Section Header ──
     const sectionY = doc.y;
-    doc.roundedRect(30, sectionY, doc.page.width - 60, 28, 4).fill(catColor);
-    doc.fontSize(11).font('Helvetica-Bold').fillColor('#ffffff')
-      .text(`${typeName}`, 40, sectionY + 7);
+    doc.roundedRect(30, sectionY, width, 28, 4).fill(catColor);
+    doc.fontSize(11).font('Helvetica-Bold').fillColor('#ffffff').text(versionedTitle(testType), 40, sectionY + 7, { width: width - 140, height: 14, ellipsis: true });
     doc.fontSize(9).font('Helvetica').fillColor('#ffffff')
-      .text(`${category} • ${typeResults.length} result${typeResults.length !== 1 ? 's' : ''}`,
-        30, sectionY + 8, { width: doc.page.width - 70, align: 'right' });
+      .text(`${category} • ${typeResults.length} result${typeResults.length !== 1 ? 's' : ''}`, 30, sectionY + 8, { width: width - 10, align: 'right' });
 
-    doc.y = sectionY + 34;
-
-    // ── Table Header ──
-    const colWidths = { date: 80, distance: 80, time: 80, pace: 110, desc: doc.page.width - 60 - 350 };
-    let tableY = doc.y;
-    let tx = 30;
-
-    doc.rect(tx, tableY, doc.page.width - 60, 20).fill(C.primary);
-    doc.fontSize(7).font('Helvetica-Bold').fillColor(C.headerText);
-    doc.text('Date', tx + 5, tableY + 6, { width: colWidths.date });
-    tx += colWidths.date;
-    doc.text('Distance', tx + 5, tableY + 6, { width: colWidths.distance, align: 'right' });
-    tx += colWidths.distance;
-    doc.text('Time', tx + 5, tableY + 6, { width: colWidths.time, align: 'right' });
-    tx += colWidths.time;
-    doc.text('Pace / Speed', tx + 5, tableY + 6, { width: colWidths.pace - 12, align: 'right' });
-    tx += colWidths.pace;
-    doc.text('Notes', tx + 12, tableY + 6, { width: colWidths.desc - 12 });
-
-    tableY += 20;
-
-    // ── Table Rows ──
-    // Compute best values for highlighting
-    const isLowerBetter = category === 'Running' || category === 'Swimming';
-    const paceValues = typeResults.map(r => {
-      if (category === 'Running') return (r.time / 60) / (r.distance / 1000);
-      if (category === 'Swimming') return (r.time / 60) / (r.distance / 100);
-      if (category === 'Cycling') return (r.distance / 1000) / (r.time / 3600);
-      return r.time;
-    });
-    const bestPace = isLowerBetter ? Math.min(...paceValues) : Math.max(...paceValues);
+    let y = sectionY + 34;
+    doc.rect(30, y, width, 20).fill(C.primary);
+    drawCells(doc, y + 6, [
+      ['Date', col.date, { align: 'left', pad: 5, font: 'Helvetica-Bold', color: C.headerText }],
+      ['Distance', col.distance, { align: 'right', font: 'Helvetica-Bold', color: C.headerText }],
+      ['Time', col.time, { align: 'right', font: 'Helvetica-Bold', color: C.headerText }],
+      [metricFor(testType).label + unitSuffix(testType), col.pace, { align: 'right', font: 'Helvetica-Bold', color: C.headerText }],
+      ['Notes', col.desc, { align: 'left', pad: 12, font: 'Helvetica-Bold', color: C.headerText }]
+    ]);
+    y += 20;
 
     typeResults.forEach((r, idx) => {
-      if (tableY + 20 > doc.page.height - 50) {
-        doc.addPage();
-        tableY = 30;
-      }
-
-      const rowBg = idx % 2 === 0 ? C.rowEven : C.rowOdd;
-      doc.rect(30, tableY, doc.page.width - 60, 18).fill(rowBg);
-
-      // Is this the best result?
-      const currentPace = paceValues[idx];
-      const isBest = Math.abs(currentPace - bestPace) < 0.001;
-
-      tx = 30;
-      doc.fontSize(7).font('Helvetica').fillColor(C.primary);
-      doc.text(new Date(r.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-        tx + 5, tableY + 5, { width: colWidths.date });
-      tx += colWidths.date;
-
-      doc.text(formatDistance(r.distance), tx + 5, tableY + 5, { width: colWidths.distance, align: 'right' });
-      tx += colWidths.distance;
-
-      doc.text(formatTime(r.time), tx + 5, tableY + 5, { width: colWidths.time, align: 'right' });
-      tx += colWidths.time;
-
-      // Pace - highlight best
-      if (isBest && typeResults.length > 1) {
-        doc.fontSize(7).font('Helvetica-Bold').fillColor(C.green);
-        doc.text(formatPace(r.distance, r.time, category), tx + 5, tableY + 5, { width: colWidths.pace - 12, align: 'right' });
-      } else {
-        doc.fontSize(7).font('Helvetica').fillColor(C.accent);
-        doc.text(formatPace(r.distance, r.time, category), tx + 5, tableY + 5, { width: colWidths.pace - 12, align: 'right' });
-      }
-      tx += colWidths.pace;
-
-      doc.fontSize(6).font('Helvetica').fillColor(C.muted);
+      if (y + 20 > doc.page.height - 50) { doc.addPage(); y = 30; }
+      doc.rect(30, y, width, 18).fill(idx % 2 === 0 ? C.rowEven : C.rowOdd);
+      const isBest = typeResults.length > 1 && best != null && Math.abs(values[idx] - best) < 0.001;
       const desc = r.description || '';
-      doc.text(desc.length > 60 ? desc.substring(0, 60) + '...' : desc, tx + 12, tableY + 6, { width: colWidths.desc - 12, lineBreak: false });
-
-      tableY += 18;
+      drawCells(doc, y + 5, [
+        [shortDate(r.date), col.date, { align: 'left', pad: 5 }],
+        [formatDistance(r.distance), col.distance, { align: 'right' }],
+        [formatTime(r.time), col.time, { align: 'right' }],
+        [formatMetric(r, testType), col.pace, { align: 'right', font: isBest ? 'Helvetica-Bold' : 'Helvetica', color: isBest ? C.green : C.accent }],
+        [desc.length > 60 ? `${desc.substring(0, 60)}...` : desc, col.desc, { align: 'left', pad: 12, size: 6, color: C.muted }]
+      ]);
+      y += 18;
     });
 
-    // ── Mini Stats Row ──
     if (typeResults.length > 1) {
-      if (tableY + 22 > doc.page.height - 50) {
-        doc.addPage();
-        tableY = 30;
-      }
-
-      doc.rect(30, tableY, doc.page.width - 60, 22).fill(C.accentLight);
-
-      const avgPace = paceValues.reduce((a, b) => a + b, 0) / paceValues.length;
-      const firstPace = paceValues[0];
-      const latestPace = paceValues[paceValues.length - 1];
-      const improvement = firstPace !== 0
-        ? (isLowerBetter
-            ? Math.round(((firstPace - latestPace) / firstPace) * 100)
-            : Math.round(((latestPace - firstPace) / firstPace) * 100))
-        : 0;
-
-      const formatPaceValue = (v) => {
-        if (category === 'Running' || category === 'Swimming') {
-          const mins = Math.floor(v);
-          const secs = Math.round((v - mins) * 60);
-          return `${mins}:${secs.toString().padStart(2, '0')}`;
-        }
-        return v.toFixed(2);
-      };
-
-      const paceUnit = category === 'Running' ? 'min/km' : category === 'Swimming' ? 'min/100m' : category === 'Cycling' ? 'km/h' : 's';
-
+      if (y + 22 > doc.page.height - 50) { doc.addPage(); y = 30; }
+      doc.rect(30, y, width, 22).fill(C.accentLight);
+      const finite = values.filter(Number.isFinite);
+      const change = improvement(finite[0], finite[finite.length - 1], testType);
+      const unit = metricUnit(testType);
       doc.fontSize(7).font('Helvetica-Bold').fillColor(C.subtitle);
-      doc.text(`Best: ${formatPaceValue(bestPace)} ${paceUnit}`, 40, tableY + 4);
-      doc.text(`Avg: ${formatPaceValue(avgPace)} ${paceUnit}`, 180, tableY + 4);
-      const impColor = improvement >= 0 ? C.green : C.red;
-      doc.fillColor(impColor);
-      doc.text(`Improvement: ${improvement >= 0 ? '+' : ''}${improvement}%`, 310, tableY + 4);
-
-      doc.fontSize(6).font('Helvetica').fillColor(C.muted)
-        .text('(vs first result)', 310, tableY + 14);
-
-      tableY += 24;
+      doc.text(`Best: ${fmtValue(best, testType)} ${unit}`, 40, y + 4);
+      doc.text(`Avg: ${fmtValue(average(finite), testType)} ${unit}`, 180, y + 4);
+      doc.fillColor(changeColor(change)).text(`Improvement: ${changeText(change)}`, 310, y + 4);
+      doc.fontSize(6).font('Helvetica').fillColor(C.muted).text('(vs first result)', 310, y + 14);
+      y += 24;
     }
 
-    doc.y = tableY + 10;
+    doc.y = y + 10;
   });
 
-  // Handle empty results
   if (results.length === 0) {
     doc.fontSize(12).font('Helvetica').fillColor(C.muted)
-      .text('No test results found for the selected period.', 30, doc.y, { width: doc.page.width - 60, align: 'center' });
+      .text('No test results found for the selected period.', 30, doc.y, { width, align: 'center' });
   }
 
-  // ── Footer ──
   writeFooter(doc, C.muted);
-
   return doc;
 };
 
-
 // ═══════════════════════════════════════════
-// MODE 2: All Athletes for a Specific Test
-// ═══════════════════════════════════════════
-
-const generateTestTypeReportPdf = (data) => {
-  const { testType, results, athletes, startDate, endDate } = data;
-
-  // Determine layout based on athlete count
-  const athleteCount = athletes.length;
-  const doc = new PDFDocument({
-    margin: 30,
-    size: 'A4',
-    layout: athleteCount > 8 ? 'landscape' : 'portrait'
-  });
-
-  const category = testType.category;
-  const catColor = categoryColors[category] || categoryColors.Other;
-  const isLowerBetter = category === 'Running' || category === 'Swimming';
-  const paceUnit = category === 'Running' ? 'min/km' : category === 'Swimming' ? 'min/100m' : category === 'Cycling' ? 'km/h' : 's';
-
-  // ── Title ──
-  doc.rect(30, 20, doc.page.width - 60, 4).fill(catColor);
-
-  doc.fontSize(22).font('Helvetica-Bold').fillColor(C.primary)
-    .text('Test Report', 30, 34, { align: 'center' });
-
-  doc.fontSize(15).font('Helvetica-Bold').fillColor(catColor)
-    .text(`${testType.title}`, { align: 'center' });
-
-  doc.fontSize(10).font('Helvetica').fillColor(C.subtitle)
-    .text(`${category} • ${formatPeriodLabel(startDate, endDate)}`, { align: 'center' });
-
-  doc.moveDown(0.6);
-
-  // ── Summary Cards ──
-  const cardY = doc.y;
-  const cardW = 110;
-  const cardH = 40;
-  const cardGap = 14;
-  const totalCardW = cardW * 3 + cardGap * 2;
-  const cardStartX = (doc.page.width - totalCardW) / 2;
-
-  const drawStatCard = (x, y, label, value, color) => {
-    doc.roundedRect(x, y, cardW, cardH, 6).fill(C.accentLight);
-    doc.fontSize(8).font('Helvetica').fillColor(C.subtitle)
-      .text(label, x, y + 6, { width: cardW, align: 'center' });
-    doc.fontSize(16).font('Helvetica-Bold').fillColor(color || C.accent)
-      .text(value.toString(), x, y + 19, { width: cardW, align: 'center' });
-  };
-
-  drawStatCard(cardStartX, cardY, 'Athletes', athleteCount);
-  drawStatCard(cardStartX + cardW + cardGap, cardY, 'Total Results', results.length);
-
-  // Compute overall best
-  let overallBestStr = '-';
-  if (results.length > 0) {
-    const paces = results.map(r => {
-      if (category === 'Running') return (r.time / 60) / (r.distance / 1000);
-      if (category === 'Swimming') return (r.time / 60) / (r.distance / 100);
-      if (category === 'Cycling') return (r.distance / 1000) / (r.time / 3600);
-      return r.time;
-    });
-    const best = isLowerBetter ? Math.min(...paces) : Math.max(...paces);
-    if (category === 'Running' || category === 'Swimming') {
-      const mins = Math.floor(best);
-      const secs = Math.round((best - mins) * 60);
-      overallBestStr = `${mins}:${secs.toString().padStart(2, '0')}`;
-    } else {
-      overallBestStr = best.toFixed(2);
-    }
-  }
-  drawStatCard(cardStartX + (cardW + cardGap) * 2, cardY, `Best (${paceUnit})`, overallBestStr, C.green);
-
-  doc.y = cardY + cardH + 20;
-
-  // ── Group results by athlete ──
-  const resultsByAthlete = {};
-  results.forEach(r => {
-    const aId = (r.athlete?._id || r.athlete)?.toString();
-    if (!resultsByAthlete[aId]) resultsByAthlete[aId] = [];
-    resultsByAthlete[aId].push(r);
-  });
-
-  // ── Table ──
-  const colWidths = {
-    name: 110,
-    tests: 45,
-    bestPace: 85,
-    latestPace: 85,
-    avgPace: 85,
-    improvement: 65,
-    latestDate: 80,
-  };
-
-  let tableY = doc.y;
-  let tx = 30;
-
-  // Header
-  doc.rect(tx, tableY, doc.page.width - 60, 22).fill(C.headerBg);
-  doc.fontSize(7).font('Helvetica-Bold').fillColor(C.headerText);
-
-  doc.text('Athlete', tx + 5, tableY + 7, { width: colWidths.name });
-  tx += colWidths.name;
-  doc.text('Tests', tx, tableY + 7, { width: colWidths.tests, align: 'center' });
-  tx += colWidths.tests;
-  doc.text(`Best (${paceUnit})`, tx, tableY + 7, { width: colWidths.bestPace, align: 'center' });
-  tx += colWidths.bestPace;
-  doc.text(`Latest (${paceUnit})`, tx, tableY + 7, { width: colWidths.latestPace, align: 'center' });
-  tx += colWidths.latestPace;
-  doc.text(`Avg (${paceUnit})`, tx, tableY + 7, { width: colWidths.avgPace, align: 'center' });
-  tx += colWidths.avgPace;
-  doc.text('Change', tx, tableY + 7, { width: colWidths.improvement, align: 'center' });
-  tx += colWidths.improvement;
-  doc.text('Last Test', tx, tableY + 7, { width: colWidths.latestDate, align: 'center' });
-
-  tableY += 22;
-
-  // ── Rows ──
-  athletes.forEach((athlete, idx) => {
-    if (tableY + 22 > doc.page.height - 50) {
-      doc.addPage();
-      tableY = 30;
-    }
-
-    const athleteResults = resultsByAthlete[athlete._id.toString()] || [];
-
-    const rowBg = idx % 2 === 0 ? C.rowEven : C.rowOdd;
-    doc.rect(30, tableY, doc.page.width - 60, 22).fill(rowBg);
-    doc.moveTo(30, tableY + 22).lineTo(doc.page.width - 30, tableY + 22)
-      .strokeColor(C.border).lineWidth(0.5).stroke();
-
-    tx = 30;
-
-    // Athlete name
-    doc.fontSize(7).font('Helvetica-Bold').fillColor(C.primary);
-    doc.text(athlete.name, tx + 5, tableY + 7, { width: colWidths.name });
-    tx += colWidths.name;
-
-    if (athleteResults.length === 0) {
-      doc.fontSize(7).font('Helvetica').fillColor(C.muted);
-      doc.text('-', tx, tableY + 7, { width: colWidths.tests, align: 'center' });
-      tx += colWidths.tests;
-      doc.text('-', tx, tableY + 7, { width: colWidths.bestPace, align: 'center' });
-      tx += colWidths.bestPace;
-      doc.text('-', tx, tableY + 7, { width: colWidths.latestPace, align: 'center' });
-      tx += colWidths.latestPace;
-      doc.text('-', tx, tableY + 7, { width: colWidths.avgPace, align: 'center' });
-      tx += colWidths.avgPace;
-      doc.text('-', tx, tableY + 7, { width: colWidths.improvement, align: 'center' });
-      tx += colWidths.improvement;
-      doc.text('-', tx, tableY + 7, { width: colWidths.latestDate, align: 'center' });
-    } else {
-      const sorted = [...athleteResults].sort((a, b) => new Date(a.date) - new Date(b.date));
-      const paces = sorted.map(r => {
-        if (category === 'Running') return (r.time / 60) / (r.distance / 1000);
-        if (category === 'Swimming') return (r.time / 60) / (r.distance / 100);
-        if (category === 'Cycling') return (r.distance / 1000) / (r.time / 3600);
-        return r.time;
-      });
-
-      const best = isLowerBetter ? Math.min(...paces) : Math.max(...paces);
-      const latest = paces[paces.length - 1];
-      const avg = paces.reduce((a, b) => a + b, 0) / paces.length;
-      const first = paces[0];
-      const improvement = first !== 0
-        ? (isLowerBetter
-            ? Math.round(((first - latest) / first) * 100)
-            : Math.round(((latest - first) / first) * 100))
-        : 0;
-
-      const fmtPace = (v) => {
-        if (category === 'Running' || category === 'Swimming') {
-          const mins = Math.floor(v);
-          const secs = Math.round((v - mins) * 60);
-          return `${mins}:${secs.toString().padStart(2, '0')}`;
-        }
-        return v.toFixed(2);
-      };
-
-      doc.fontSize(7).font('Helvetica').fillColor(C.primary);
-      doc.text(athleteResults.length.toString(), tx, tableY + 7, { width: colWidths.tests, align: 'center' });
-      tx += colWidths.tests;
-
-      doc.font('Helvetica-Bold').fillColor(C.green);
-      doc.text(fmtPace(best), tx, tableY + 7, { width: colWidths.bestPace, align: 'center' });
-      tx += colWidths.bestPace;
-
-      doc.font('Helvetica').fillColor(C.accent);
-      doc.text(fmtPace(latest), tx, tableY + 7, { width: colWidths.latestPace, align: 'center' });
-      tx += colWidths.latestPace;
-
-      doc.fillColor(C.subtitle);
-      doc.text(fmtPace(avg), tx, tableY + 7, { width: colWidths.avgPace, align: 'center' });
-      tx += colWidths.avgPace;
-
-      const impColor = improvement >= 0 ? C.green : C.red;
-      doc.font('Helvetica-Bold').fillColor(impColor);
-      doc.text(hasBaseline ? `${improvement >= 0 ? '+' : ''}${improvement}%` : '-', tx, tableY + 7, { width: colWidths.improvement, align: 'center' });
-      tx += colWidths.improvement;
-
-      const lastDate = new Date(sorted[sorted.length - 1].date);
-      doc.font('Helvetica').fillColor(C.subtitle);
-      doc.text(lastDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), tx, tableY + 7, { width: colWidths.latestDate, align: 'center' });
-    }
-
-    tableY += 22;
-  });
-
-  // Handle empty
-  if (results.length === 0) {
-    doc.y = tableY + 10;
-    doc.fontSize(12).font('Helvetica').fillColor(C.muted)
-      .text('No test results found for the selected period.', 30, doc.y, { width: doc.page.width - 60, align: 'center' });
-  }
-
-  // ── Footer ──
-  writeFooter(doc, C.muted);
-
-  return doc;
-};
-
-
-// ═══════════════════════════════════════════
-// MODE 3: Multiple Test Types in one report
+// MODE 2: One or more tests, all athletes (one section per test version)
 // ═══════════════════════════════════════════
 
 const generateMultiTestTypeReportPdf = (allTestData) => {
   const doc = new PDFDocument({ margin: 30, size: 'A4', layout: 'portrait' });
+  const width = doc.page.width - 60;
+  const { startDate, endDate } = allTestData[0];
 
-  const firstData = allTestData[0];
-  const { startDate, endDate } = firstData;
-
-  // ── Cover Title ──
-  doc.rect(30, 20, doc.page.width - 60, 4).fill(C.accent);
-
+  doc.rect(30, 20, width, 4).fill(C.accent);
   doc.fontSize(22).font('Helvetica-Bold').fillColor(C.primary)
-    .text('Multi-Test Report', 30, 34, { align: 'center' });
-
+    .text(allTestData.length === 1 ? 'Test Report' : 'Multi-Test Report', 30, 34, { align: 'center' });
   doc.fontSize(12).font('Helvetica').fillColor(C.subtitle)
-    .text(`${allTestData.length} Tests • ${formatPeriodLabel(startDate, endDate)}`, { align: 'center' });
-
+    .text(`${allTestData.length} ${allTestData.length === 1 ? 'Test' : 'Tests'} • ${formatPeriodLabel(startDate, endDate)}`, { align: 'center' });
   doc.moveDown(0.6);
 
-  // List test names as horizontal pill badges
+  // Test names as centered pill badges
   const pillH = 20;
-  const pillPadX = 12;
   const pillGap = 8;
-  const pillRowGap = 6;
-  const pageLeft = 30;
-  const pageRight = doc.page.width - 30;
-  const maxRowWidth = pageRight - pageLeft;
-
-  // Measure all pills first to center them
   const pills = allTestData.map(({ testType }) => {
-    const label = `${testType.title}  •  ${testType.category}`;
-    const textW = doc.fontSize(8).font('Helvetica-Bold').widthOfString(label);
-    const pillW = textW + pillPadX * 2;
-    const color = categoryColors[testType.category] || categoryColors.Other;
-    return { label, pillW, color };
+    const label = `${versionedTitle(testType)}  •  ${testType.category}`;
+    const pillW = Math.min(width, doc.fontSize(8).font('Helvetica-Bold').widthOfString(label) + 24);
+    return { label, pillW, color: categoryColors[testType.category] || categoryColors.Other };
   });
-
-  // Arrange pills into rows
   const rows = [];
-  let currentRow = [];
-  let currentRowW = 0;
   pills.forEach((pill) => {
-    const needed = currentRow.length > 0 ? pill.pillW + pillGap : pill.pillW;
-    if (currentRowW + needed > maxRowWidth && currentRow.length > 0) {
-      rows.push({ items: currentRow, totalW: currentRowW });
-      currentRow = [pill];
-      currentRowW = pill.pillW;
-    } else {
-      currentRow.push(pill);
-      currentRowW += needed;
-    }
+    const row = rows[rows.length - 1];
+    if (row && row.w + pillGap + pill.pillW <= width) { row.items.push(pill); row.w += pillGap + pill.pillW; } else rows.push({ items: [pill], w: pill.pillW });
   });
-  if (currentRow.length > 0) rows.push({ items: currentRow, totalW: currentRowW });
-
-  // Draw centered pill rows
   let pillY = doc.y;
   rows.forEach((row) => {
-    // Compute actual total width: all pill widths + gaps between them
-    const actualW = row.items.reduce((sum, p) => sum + p.pillW, 0) + (row.items.length - 1) * pillGap;
-    let px = 30 + (maxRowWidth - actualW) / 2;
+    let px = 30 + (width - row.w) / 2;
     row.items.forEach((pill) => {
-      // Pill background
       doc.roundedRect(px, pillY, pill.pillW, pillH, pillH / 2).fill(pill.color);
-      // Pill text - vertically centered (extra 1pt for ascender correction)
-      const pillFontSize = 8;
-      const textYOffset = (pillH - pillFontSize) / 2 + 1;
-      doc.fontSize(pillFontSize).font('Helvetica-Bold').fillColor('#ffffff')
-        .text(pill.label, px, pillY + textYOffset, { width: pill.pillW, align: 'center', lineBreak: false });
+      doc.fontSize(8).font('Helvetica-Bold').fillColor('#ffffff').text(pill.label, px, pillY + 6, { width: pill.pillW, height: 11, align: 'center', ellipsis: true });
       px += pill.pillW + pillGap;
     });
-    pillY += pillH + pillRowGap;
+    pillY += pillH + 6;
   });
-
   doc.y = pillY + 8;
 
-
-  // ── Render each test type section ──
   allTestData.forEach(({ testType, results, athletes, startDate: sd, endDate: ed, previousResultsByAthlete }, sectionIdx) => {
-    if (sectionIdx > 0) {
-      doc.addPage();
-    }
+    if (sectionIdx > 0) doc.addPage();
 
     const category = testType.category;
     const catColor = categoryColors[category] || categoryColors.Other;
-    const isLowerBetter = category === 'Running' || category === 'Swimming';
-    const paceUnit = category === 'Running' ? 'min/km' : category === 'Swimming' ? 'min/100m' : category === 'Cycling' ? 'km/h' : 's';
-
-    // ── Section Title ──
-    const sectionY = doc.y;
-    doc.rect(30, sectionY, doc.page.width - 60, 4).fill(catColor);
-
-    doc.fontSize(18).font('Helvetica-Bold').fillColor(C.primary)
-      .text(testType.title, 30, sectionY + 12, { align: 'center' });
-
-    doc.fontSize(10).font('Helvetica').fillColor(C.subtitle)
-      .text(`${category} • ${formatPeriodLabel(sd, ed)}`, { align: 'center' });
-
-    doc.moveDown(0.6);
-
-    // ── Summary Cards ──
-    const athleteCount = athletes.length;
-    const cardY = doc.y;
-    const cardW = 110;
-    const cardH = 40;
-    const cardGap = 14;
-    const totalCardW = cardW * 3 + cardGap * 2;
-    const cardStartX = (doc.page.width - totalCardW) / 2;
-
-    const drawStatCard = (x, y, label, value, color) => {
-      doc.roundedRect(x, y, cardW, cardH, 6).fill(C.accentLight);
-      doc.fontSize(8).font('Helvetica').fillColor(C.subtitle)
-        .text(label, x, y + 6, { width: cardW, align: 'center' });
-      doc.fontSize(16).font('Helvetica-Bold').fillColor(color || C.accent)
-        .text(value.toString(), x, y + 19, { width: cardW, align: 'center' });
-    };
-
-    drawStatCard(cardStartX, cardY, 'Athletes', athleteCount);
-    drawStatCard(cardStartX + cardW + cardGap, cardY, 'Total Results', results.length);
-
-    let overallBestStr = '-';
-    if (results.length > 0) {
-      const paces = results.map(r => {
-        if (category === 'Running') return (r.time / 60) / (r.distance / 1000);
-        if (category === 'Swimming') return (r.time / 60) / (r.distance / 100);
-        if (category === 'Cycling') return (r.distance / 1000) / (r.time / 3600);
-        return r.time;
-      });
-      const best = isLowerBetter ? Math.min(...paces) : Math.max(...paces);
-      if (category === 'Running' || category === 'Swimming') {
-        const mins = Math.floor(best);
-        const secs = Math.round((best - mins) * 60);
-        overallBestStr = `${mins}:${secs.toString().padStart(2, '0')}`;
-      } else {
-        overallBestStr = best.toFixed(2);
-      }
-    }
-    drawStatCard(cardStartX + (cardW + cardGap) * 2, cardY, `Best (${paceUnit})`, overallBestStr, C.green);
-
-    doc.y = cardY + cardH + 20;
-
-    // ── Group results by athlete ──
-    const resultsByAthlete = {};
-    results.forEach(r => {
-      const aId = (r.athlete?._id || r.athlete)?.toString();
-      if (!resultsByAthlete[aId]) resultsByAthlete[aId] = [];
-      resultsByAthlete[aId].push(r);
-    });
-
-    // ── Table ──
+    const metric = metricFor(testType);
+    const unit = unitSuffix(testType);
     const isCycling = category === 'Cycling';
 
-    // Different column layouts for cycling vs. other
-    const colWidths = isCycling
-      ? { name: 90, avgSpeed: 55, avgPower: 55, avgCadence: 50, avgHR: 45, wkg: 45, improvement: 48, latestDate: 55, prevDate: 55 }
-      : { name: 95, previous: 68, prevAvg: 62, latest: 68, avgPace: 64, improvement: 50, latestDate: 60, prevDate: 60 };
+    const sectionY = doc.y;
+    doc.rect(30, sectionY, width, 4).fill(catColor);
+    doc.fontSize(18).font('Helvetica-Bold').fillColor(C.primary).text(versionedTitle(testType), 30, sectionY + 12, { align: 'center' });
+    doc.fontSize(10).font('Helvetica').fillColor(C.subtitle).text(`${category} • ${formatPeriodLabel(sd, ed)}`, { align: 'center' });
+    doc.moveDown(0.6);
 
-    let tableY = doc.y;
-    let tx = 30;
+    drawStatCards(doc, [
+      ['Athletes', athletes.length],
+      ['Total Results', results.length],
+      [`Best${unit}`, fmtValue(bestOf(valuesOf(results, testType), testType), testType), C.green]
+    ], 110);
 
-    doc.rect(tx, tableY, doc.page.width - 60, 22).fill(C.headerBg);
-    doc.fontSize(7).font('Helvetica-Bold').fillColor(C.headerText);
-
-    if (isCycling) {
-      doc.text('Athlete', tx + 5, tableY + 7, { width: colWidths.name });
-      tx += colWidths.name;
-      doc.text('Avg Speed', tx, tableY + 7, { width: colWidths.avgSpeed, align: 'center' });
-      tx += colWidths.avgSpeed;
-      doc.text('Avg Power', tx, tableY + 7, { width: colWidths.avgPower, align: 'center' });
-      tx += colWidths.avgPower;
-      doc.text('Cadence', tx, tableY + 7, { width: colWidths.avgCadence, align: 'center' });
-      tx += colWidths.avgCadence;
-      doc.text('Avg HR', tx, tableY + 7, { width: colWidths.avgHR, align: 'center' });
-      tx += colWidths.avgHR;
-      doc.text('W/kg', tx, tableY + 7, { width: colWidths.wkg, align: 'center' });
-      tx += colWidths.wkg;
-      doc.text('Change', tx, tableY + 7, { width: colWidths.improvement, align: 'center' });
-      tx += colWidths.improvement;
-      doc.text('Last Test', tx, tableY + 7, { width: colWidths.latestDate, align: 'center' });
-      tx += colWidths.latestDate;
-      doc.text('Prev Date', tx, tableY + 7, { width: colWidths.prevDate, align: 'center' });
-    } else {
-      doc.text('Athlete', tx + 5, tableY + 7, { width: colWidths.name });
-      tx += colWidths.name;
-      doc.text('Previous', tx, tableY + 7, { width: colWidths.previous, align: 'center' });
-      tx += colWidths.previous;
-      doc.text('Prev Avg', tx, tableY + 7, { width: colWidths.prevAvg, align: 'center' });
-      tx += colWidths.prevAvg;
-      doc.text('Latest', tx, tableY + 7, { width: colWidths.latest, align: 'center' });
-      tx += colWidths.latest;
-      doc.text(`Avg (${paceUnit})`, tx, tableY + 7, { width: colWidths.avgPace, align: 'center' });
-      tx += colWidths.avgPace;
-      doc.text('Change', tx, tableY + 7, { width: colWidths.improvement, align: 'center' });
-      tx += colWidths.improvement;
-      doc.text('Last Test', tx, tableY + 7, { width: colWidths.latestDate, align: 'center' });
-      tx += colWidths.latestDate;
-      doc.text('Prev Date', tx, tableY + 7, { width: colWidths.prevDate, align: 'center' });
-    }
-
-    tableY += 22;
-
-    // ── Rows ──
-    athletes.forEach((athlete, idx) => {
-      if (tableY + 22 > doc.page.height - 50) {
-        doc.addPage();
-        tableY = 30;
-      }
-
-      const athleteResults = resultsByAthlete[athlete._id.toString()] || [];
-
-      const rowBg = idx % 2 === 0 ? C.rowEven : C.rowOdd;
-      doc.rect(30, tableY, doc.page.width - 60, 22).fill(rowBg);
-      doc.moveTo(30, tableY + 22).lineTo(doc.page.width - 30, tableY + 22)
-        .strokeColor(C.border).lineWidth(0.5).stroke();
-
-      tx = 30;
-
-      doc.fontSize(7).font('Helvetica-Bold').fillColor(C.primary);
-      doc.text(athlete.name, tx + 5, tableY + 7, { width: colWidths.name });
-      tx += colWidths.name;
-
-      if (athleteResults.length === 0) {
-        doc.fontSize(7).font('Helvetica').fillColor(C.muted);
-        if (isCycling) {
-          doc.text('-', tx, tableY + 7, { width: colWidths.avgSpeed, align: 'center' });
-          tx += colWidths.avgSpeed;
-          doc.text('-', tx, tableY + 7, { width: colWidths.avgPower, align: 'center' });
-          tx += colWidths.avgPower;
-          doc.text('-', tx, tableY + 7, { width: colWidths.avgCadence, align: 'center' });
-          tx += colWidths.avgCadence;
-          doc.text('-', tx, tableY + 7, { width: colWidths.avgHR, align: 'center' });
-          tx += colWidths.avgHR;
-          doc.text('-', tx, tableY + 7, { width: colWidths.wkg, align: 'center' });
-          tx += colWidths.wkg;
-          doc.text('-', tx, tableY + 7, { width: colWidths.improvement, align: 'center' });
-          tx += colWidths.improvement;
-          doc.text('-', tx, tableY + 7, { width: colWidths.latestDate, align: 'center' });
-          tx += colWidths.latestDate;
-          doc.text('-', tx, tableY + 7, { width: colWidths.prevDate, align: 'center' });
-        } else {
-          doc.text('-', tx, tableY + 7, { width: colWidths.previous, align: 'center' });
-          tx += colWidths.previous;
-          doc.text('-', tx, tableY + 7, { width: colWidths.prevAvg, align: 'center' });
-          tx += colWidths.prevAvg;
-          doc.text('-', tx, tableY + 7, { width: colWidths.latest, align: 'center' });
-          tx += colWidths.latest;
-          doc.text('-', tx, tableY + 7, { width: colWidths.avgPace, align: 'center' });
-          tx += colWidths.avgPace;
-          doc.text('-', tx, tableY + 7, { width: colWidths.improvement, align: 'center' });
-          tx += colWidths.improvement;
-          doc.text('-', tx, tableY + 7, { width: colWidths.latestDate, align: 'center' });
-          tx += colWidths.latestDate;
-          doc.text('-', tx, tableY + 7, { width: colWidths.prevDate, align: 'center' });
-        }
-      } else {
-        const sorted = [...athleteResults].sort((a, b) => new Date(a.date) - new Date(b.date));
-        const paces = sorted.map(r => {
-          if (category === 'Running') return (r.time / 60) / (r.distance / 1000);
-          if (category === 'Swimming') return (r.time / 60) / (r.distance / 100);
-          if (category === 'Cycling') return (r.distance / 1000) / (r.time / 3600);
-          return r.time;
-        });
-
-        const latest = paces[paces.length - 1];
-        const avg = paces.reduce((a, b) => a + b, 0) / paces.length;
-
-        // ── Previous results: those fetched before the selected period ──
-        const prevResults = (previousResultsByAthlete && previousResultsByAthlete[athlete._id.toString()]) || [];
-        const prevSorted = [...prevResults].sort((a, b) => new Date(a.date) - new Date(b.date));
-
-        const prevPaces = prevSorted.map(r => {
-          if (category === 'Running') return (r.time / 60) / (r.distance / 1000);
-          if (category === 'Swimming') return (r.time / 60) / (r.distance / 100);
-          if (category === 'Cycling') return (r.distance / 1000) / (r.time / 3600);
-          return r.time;
-        });
-
-        const baselinePace = prevPaces.length > 0 ? prevPaces[prevPaces.length - 1] : paces[0];
-        // With one result and nothing earlier there is nothing to compare against.
-        const hasBaseline = prevPaces.length > 0 || paces.length > 1;
-        const improvement = baselinePace !== 0
-          ? (isLowerBetter
-              ? Math.round(((baselinePace - latest) / baselinePace) * 100)
-              : Math.round(((latest - baselinePace) / baselinePace) * 100))
-          : 0;
-
-        const fmtPace = (v) => {
-          if (category === 'Running' || category === 'Swimming') {
-            const mins = Math.floor(v);
-            const secs = Math.round((v - mins) * 60);
-            return `${mins}:${secs.toString().padStart(2, '0')}`;
-          }
-          return v.toFixed(2);
-        };
-
-        const mostRecentPrev = prevSorted.length > 0 ? prevSorted[prevSorted.length - 1] : null;
-
-        if (isCycling) {
-          // ── Cycling columns ──
-          const latestResult = sorted[sorted.length - 1];
-
-          // Avg Speed (km/h) - average across all results in period
-          doc.fontSize(7).font('Helvetica-Bold').fillColor(C.accent);
-          doc.text(fmtPace(avg), tx, tableY + 7, { width: colWidths.avgSpeed, align: 'center' });
-          tx += colWidths.avgSpeed;
-
-          // Avg Power (FTP)
-          const powers = sorted.filter(r => r.avgPower != null).map(r => r.avgPower);
-          const avgPowerVal = powers.length > 0 ? Math.round(powers.reduce((a, b) => a + b, 0) / powers.length) : null;
-          doc.font('Helvetica').fillColor(avgPowerVal ? C.primary : C.muted);
-          doc.text(avgPowerVal ? `${avgPowerVal}W` : '-', tx, tableY + 7, { width: colWidths.avgPower, align: 'center' });
-          tx += colWidths.avgPower;
-
-          // Avg Cadence
-          const cadences = sorted.filter(r => r.avgCadence != null).map(r => r.avgCadence);
-          const avgCadVal = cadences.length > 0 ? Math.round(cadences.reduce((a, b) => a + b, 0) / cadences.length) : null;
-          doc.fillColor(avgCadVal ? C.primary : C.muted);
-          doc.text(avgCadVal ? `${avgCadVal}` : '-', tx, tableY + 7, { width: colWidths.avgCadence, align: 'center' });
-          tx += colWidths.avgCadence;
-
-          // Avg HR
-          const hrs = sorted.filter(r => r.avgHeartRate != null).map(r => r.avgHeartRate);
-          const avgHRVal = hrs.length > 0 ? Math.round(hrs.reduce((a, b) => a + b, 0) / hrs.length) : null;
-          doc.fillColor(avgHRVal ? C.primary : C.muted);
-          doc.text(avgHRVal ? `${avgHRVal}` : '-', tx, tableY + 7, { width: colWidths.avgHR, align: 'center' });
-          tx += colWidths.avgHR;
-
-          // W/kg
-          const latestWeight = latestResult.weight;
-          const latestPower = latestResult.avgPower;
-          const wkg = (latestPower && latestWeight) ? (latestPower / latestWeight).toFixed(2) : null;
-          doc.font('Helvetica-Bold').fillColor(wkg ? C.green : C.muted);
-          doc.text(wkg || '-', tx, tableY + 7, { width: colWidths.wkg, align: 'center' });
-          tx += colWidths.wkg;
-
-          // Change
-          const impColor = !hasBaseline ? C.muted : improvement >= 0 ? C.green : C.red;
-          doc.font('Helvetica-Bold').fillColor(impColor);
-          doc.text(hasBaseline ? `${improvement >= 0 ? '+' : ''}${improvement}%` : '-', tx, tableY + 7, { width: colWidths.improvement, align: 'center' });
-          tx += colWidths.improvement;
-
-          // Last test date
-          const lastDate = new Date(sorted[sorted.length - 1].date);
-          doc.font('Helvetica').fillColor(C.subtitle);
-          doc.text(lastDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), tx, tableY + 7, { width: colWidths.latestDate, align: 'center' });
-          tx += colWidths.latestDate;
-
-          // Prev date
-          if (mostRecentPrev) {
-            const prevDate = new Date(mostRecentPrev.date);
-            doc.font('Helvetica').fillColor(C.muted);
-            doc.text(prevDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), tx, tableY + 7, { width: colWidths.prevDate, align: 'center' });
-          } else {
-            doc.font('Helvetica').fillColor(C.muted);
-            doc.text('-', tx, tableY + 7, { width: colWidths.prevDate, align: 'center' });
-          }
-        } else {
-          // ── Non-cycling columns (original) ──
-          const prevAvgPace = prevPaces.length > 0
-            ? prevPaces.reduce((a, b) => a + b, 0) / prevPaces.length
-            : null;
-
-          // Previous result column
-          if (mostRecentPrev) {
-            doc.fontSize(7).font('Helvetica').fillColor(C.subtitle);
-            doc.text(formatTime(mostRecentPrev.time), tx, tableY + 7, { width: colWidths.previous, align: 'center' });
-          } else {
-            doc.fontSize(7).font('Helvetica').fillColor(C.muted);
-            doc.text('-', tx, tableY + 7, { width: colWidths.previous, align: 'center' });
-          }
-          tx += colWidths.previous;
-
-          // Previous average pace
-          if (prevAvgPace !== null) {
-            doc.fontSize(7).font('Helvetica').fillColor(C.subtitle);
-            doc.text(fmtPace(prevAvgPace), tx, tableY + 7, { width: colWidths.prevAvg, align: 'center' });
-          } else {
-            doc.fontSize(7).font('Helvetica').fillColor(C.muted);
-            doc.text('-', tx, tableY + 7, { width: colWidths.prevAvg, align: 'center' });
-          }
-          tx += colWidths.prevAvg;
-
-          // Latest result (actual time)
-          const latestResult = sorted[sorted.length - 1];
-          doc.fontSize(7).font('Helvetica-Bold').fillColor(C.accent);
-          doc.text(formatTime(latestResult.time), tx, tableY + 7, { width: colWidths.latest, align: 'center' });
-          tx += colWidths.latest;
-
-          // Avg pace
-          doc.font('Helvetica').fillColor(C.subtitle);
-          doc.text(fmtPace(avg), tx, tableY + 7, { width: colWidths.avgPace, align: 'center' });
-          tx += colWidths.avgPace;
-
-          // Change
-          const impColor = !hasBaseline ? C.muted : improvement >= 0 ? C.green : C.red;
-          doc.font('Helvetica-Bold').fillColor(impColor);
-          doc.text(hasBaseline ? `${improvement >= 0 ? '+' : ''}${improvement}%` : '-', tx, tableY + 7, { width: colWidths.improvement, align: 'center' });
-          tx += colWidths.improvement;
-
-          // Last test date
-          const lastDate = new Date(sorted[sorted.length - 1].date);
-          doc.font('Helvetica').fillColor(C.subtitle);
-          doc.text(lastDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), tx, tableY + 7, { width: colWidths.latestDate, align: 'center' });
-          tx += colWidths.latestDate;
-
-          // Prev test date
-          if (mostRecentPrev) {
-            const prevDate = new Date(mostRecentPrev.date);
-            doc.font('Helvetica').fillColor(C.muted);
-            doc.text(prevDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), tx, tableY + 7, { width: colWidths.prevDate, align: 'center' });
-          } else {
-            doc.font('Helvetica').fillColor(C.muted);
-            doc.text('-', tx, tableY + 7, { width: colWidths.prevDate, align: 'center' });
-          }
-        }
-      }
-
-      tableY += 22;
+    const byAthlete = {};
+    results.forEach((r) => {
+      const id = (r.athlete?._id || r.athlete)?.toString();
+      (byAthlete[id] = byAthlete[id] || []).push(r);
     });
 
-    // Handle empty
-    if (results.length === 0) {
-      doc.y = tableY + 10;
-      doc.fontSize(12).font('Helvetica').fillColor(C.muted)
-        .text('No test results found for the selected period.', 30, doc.y, { width: doc.page.width - 60, align: 'center' });
-    }
+    const columns = isCycling
+      ? [['Athlete', 90], [`Avg ${metric.label}`, 55], ['Avg Power', 55], ['Cadence', 50], ['Avg HR', 45], ['W/kg', 45], ['Change', 48], ['Last Test', 55], ['Prev Date', 55]]
+      : [['Athlete', 95], ['Previous', 68], ['Prev Avg', 62], ['Latest', 68], [`Avg${unit}`, 64], ['Change', 50], ['Last Test', 60], ['Prev Date', 60]];
 
-    doc.y = tableY + 10;
+    let y = doc.y;
+    doc.rect(30, y, width, 22).fill(C.headerBg);
+    drawCells(doc, y + 7, columns.map(([label, w], i) => [label, w, { align: i === 0 ? 'left' : 'center', pad: i === 0 ? 5 : 0, font: 'Helvetica-Bold', color: C.headerText }]));
+    y += 22;
+
+    athletes.forEach((athlete, idx) => {
+      if (y + 22 > doc.page.height - 50) { doc.addPage(); y = 30; }
+      doc.rect(30, y, width, 22).fill(idx % 2 === 0 ? C.rowEven : C.rowOdd);
+      doc.moveTo(30, y + 22).lineTo(doc.page.width - 30, y + 22).strokeColor(C.border).lineWidth(0.5).stroke();
+
+      const own = [...(byAthlete[athlete._id.toString()] || [])].sort((a, b) => new Date(a.date) - new Date(b.date));
+      const prev = [...((previousResultsByAthlete && previousResultsByAthlete[athlete._id.toString()]) || [])].sort((a, b) => new Date(a.date) - new Date(b.date));
+      const name = [athlete.name, columns[0][1], { align: 'left', pad: 5, font: 'Helvetica-Bold' }];
+
+      if (own.length === 0) {
+        drawCells(doc, y + 7, [name, ...columns.slice(1).map(([, w]) => ['-', w, { color: C.muted }])]);
+        y += 22;
+        return;
+      }
+
+      const values = valuesOf(own, testType);
+      const prevValues = valuesOf(prev, testType);
+      const latestValue = values[values.length - 1];
+      // Baseline: the last result before the period, else the first one in it.
+      const baseline = prevValues.length ? prevValues[prevValues.length - 1] : (values.length > 1 ? values[0] : null);
+      const change = baseline == null ? null : improvement(baseline, latestValue, testType);
+      const latest = own[own.length - 1];
+      const lastPrev = prev[prev.length - 1];
+      const dates = [
+        [shortDate(latest.date, false), isCycling ? 55 : 60, { color: C.subtitle }],
+        [lastPrev ? shortDate(lastPrev.date, false) : '-', isCycling ? 55 : 60, { color: C.muted }]
+      ];
+
+      if (isCycling) {
+        const avgPower = mean(own.filter((r) => r.avgPower != null).map((r) => r.avgPower));
+        const avgCadence = mean(own.filter((r) => r.avgCadence != null).map((r) => r.avgCadence));
+        const avgHR = mean(own.filter((r) => r.avgHeartRate != null).map((r) => r.avgHeartRate));
+        const wkg = latest.avgPower && latest.weight ? (latest.avgPower / latest.weight).toFixed(2) : null;
+        drawCells(doc, y + 7, [
+          name,
+          [fmtValue(average(values), testType), 55, { font: 'Helvetica-Bold', color: C.accent }],
+          [avgPower ? `${avgPower}W` : '-', 55, { color: avgPower ? C.primary : C.muted }],
+          [avgCadence ? String(avgCadence) : '-', 50, { color: avgCadence ? C.primary : C.muted }],
+          [avgHR ? String(avgHR) : '-', 45, { color: avgHR ? C.primary : C.muted }],
+          [wkg || '-', 45, { font: 'Helvetica-Bold', color: wkg ? C.green : C.muted }],
+          [changeText(change), 48, { font: 'Helvetica-Bold', color: changeColor(change) }],
+          ...dates
+        ]);
+      } else {
+        drawCells(doc, y + 7, [
+          name,
+          [lastPrev ? formatRaw(lastPrev, testType) : '-', 68, { color: lastPrev ? C.subtitle : C.muted }],
+          [prevValues.length ? fmtValue(average(prevValues), testType) : '-', 62, { color: prevValues.length ? C.subtitle : C.muted }],
+          [formatRaw(latest, testType), 68, { font: 'Helvetica-Bold', color: C.accent }],
+          [fmtValue(average(values), testType), 64, { color: C.subtitle }],
+          [changeText(change), 50, { font: 'Helvetica-Bold', color: changeColor(change) }],
+          ...dates
+        ]);
+      }
+      y += 22;
+    });
+
+    if (results.length === 0) {
+      doc.fontSize(12).font('Helvetica').fillColor(C.muted)
+        .text('No test results found for the selected period.', 30, y + 10, { width, align: 'center' });
+      y += 30;
+    }
+    doc.y = y + 10;
   });
 
-  // ── Footer ──
   writeFooter(doc, C.muted);
-
   return doc;
 };
 
-
-module.exports = { generateAthleteTestPdf, generateTestTypeReportPdf, generateMultiTestTypeReportPdf };
+module.exports = { generateAthleteTestPdf, generateMultiTestTypeReportPdf };

@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { PiPlus, PiPencilSimple, PiTrash, PiArrowLeft, PiTimer, PiWarningCircle, PiCheckCircle } from 'react-icons/pi';
+import {
+  PiPlus, PiPencilSimple, PiTrash, PiArrowLeft, PiTimer, PiWarningCircle, PiCheckCircle, PiClockCounterClockwise, PiUsersThree, PiUser
+} from 'react-icons/pi';
 import api from '../utils/api';
 import usePageTitle from '../hooks/usePageTitle';
 import { apiError } from '../utils/browser';
@@ -14,7 +16,10 @@ import { Segmented } from '../components/ui/Segmented';
 import { useConfirm } from '../components/ui/ConfirmProvider';
 import PerformanceTabs from '../components/PerformanceTabs';
 import ResultFields, { emptyResultForm, validateResult, buildPayload, ResultPreview } from '../components/ResultFields';
-import { CATEGORIES, categoryMeta, formatDistance, formatTime, formatPace, formatResultDate, fromSeconds, toSeconds } from '../utils/performance';
+import SquadResults from '../components/SquadResults';
+import {
+  CATEGORIES, categoryMeta, formatDistance, formatTime, formatPace, formatResultDate, fromSeconds, toSeconds, describeTarget
+} from '../utils/performance';
 
 // ---------- Test types ----------
 
@@ -43,14 +48,23 @@ const TestTypeDialog = ({ open, onClose, testType, onSaved }) => {
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
+  const distance = parseFloat(form.distanceValue) * (form.distanceUnit === 'km' ? 1000 : 1);
+  const time = toSeconds(form.time);
+  // Changing what is measured on a test that already has results starts a new version.
+  const redefines = testType && testType.resultCount > 0 && (
+    form.category !== testType.category
+    || form.measureType !== testType.measureType
+    || (form.measureType === 'Distance' && distance !== testType.targetDistance)
+    || (form.measureType === 'Time' && time !== testType.targetTime)
+  );
+
   const submit = async (e) => {
     e.preventDefault();
     const next = {};
-    const distance = parseFloat(form.distanceValue) * (form.distanceUnit === 'km' ? 1000 : 1);
-    const time = toSeconds(form.time);
     if (!form.title.trim()) next.title = 'Give the test a name.';
     if (form.measureType === 'Distance' && !(distance > 0)) next.target = 'Enter the distance athletes cover.';
     if (form.measureType === 'Time' && !(time > 0)) next.target = 'Enter how long the test lasts.';
+    if (parseInt(form.time.m, 10) > 59 || parseInt(form.time.s, 10) > 59) next.target = 'Minutes and seconds go up to 59.';
     setErrors(next);
     if (Object.keys(next).length) return;
 
@@ -118,7 +132,17 @@ const TestTypeDialog = ({ open, onClose, testType, onSaved }) => {
             <DurationInput idPrefix="type-time" value={form.time} onChange={(time) => setForm((f) => ({ ...f, time }))} invalid={!!errors.target} />
           </Field>
         )}
-        {testType && <p className="text-[12px] text-muted">Results already recorded keep their own distance and time.</p>}
+        {redefines ? (
+          <p className="flex items-start gap-2 rounded-lg bg-accent/10 p-3 text-[13px]">
+            <PiClockCounterClockwise className="mt-0.5 h-4 w-4 shrink-0 text-accent" aria-hidden="true" />
+            <span>
+              {testType.resultCount} {testType.resultCount === 1 ? 'result uses' : 'results use'} the current definition ({describeTarget(testType)}).
+              Saving starts version {(testType.version || 1) + 1} from today. Earlier results stay on version {testType.version || 1}, so they are never compared with the new target.
+            </span>
+          </p>
+        ) : testType ? (
+          <p className="text-[12px] text-muted">Renaming updates every result. Results already recorded keep their own distance and time.</p>
+        ) : null}
         {errors.form && <p role="alert" className="text-[13px] text-danger">{errors.form}</p>}
       </form>
     </Dialog>
@@ -128,6 +152,17 @@ const TestTypeDialog = ({ open, onClose, testType, onSaved }) => {
 const targetLabel = (t) => (t.measureType === 'Distance'
   ? `Fixed distance, ${t.targetDistance ? formatDistance(t.targetDistance) : 'not set'}`
   : `Fixed time, ${t.targetTime ? formatTime(t.targetTime) : 'not set'}`);
+
+// "12 results · v2 since Mar 4 (was 3 km)"
+const historyLabel = (t) => {
+  const parts = [`${t.resultCount || 0} ${t.resultCount === 1 ? 'result' : 'results'}`];
+  const versions = t.versions || [];
+  if (versions.length > 1) {
+    const previous = versions[versions.length - 2];
+    parts.push(`v${t.version} since ${formatResultDate(t.validFrom, { month: 'short', day: 'numeric', year: 'numeric' })} (was ${describeTarget(previous)})`);
+  }
+  return parts.join(' · ');
+};
 
 const TestTypesView = ({ testTypes, setTestTypes, status, reload }) => {
   const confirm = useConfirm();
@@ -180,6 +215,7 @@ const TestTypesView = ({ testTypes, setTestTypes, status, reload }) => {
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-[15px] font-medium">{t.title}</p>
                         <p className="text-[12px] text-muted">{targetLabel(t)}</p>
+                        <p className="text-[12px] text-muted/80">{historyLabel(t)}</p>
                       </div>
                       <Menu
                         label={`Actions for ${t.title}`}
@@ -201,8 +237,10 @@ const TestTypesView = ({ testTypes, setTestTypes, status, reload }) => {
         testType={dialog.testType}
         onClose={() => setDialog({ open: false, testType: null })}
         onSaved={(data, created) => {
-          setTestTypes((list) => (created ? [...list, data] : list.map((x) => (x._id === data._id ? data : x))).sort((a, b) => a.title.localeCompare(b.title)));
-          toast.success(created ? 'Test type created' : 'Test type updated');
+          if (data.versioned) toast.success(`Saved as version ${data.version}. Earlier results keep version ${data.previousVersion}.`, { duration: 5000 });
+          else toast.success(created ? 'Test type created' : 'Test type updated');
+          // Reload for fresh version history and result counts.
+          reload({ quiet: true });
         }}
       />
     </>
@@ -211,7 +249,37 @@ const TestTypesView = ({ testTypes, setTestTypes, status, reload }) => {
 
 // ---------- Record ----------
 
-const RecordView = ({ athletes, testTypes, status, preselectedAthlete }) => {
+const RecordView = ({ athletes, testTypes, templates, status, preselectedAthlete }) => {
+  // Whole squad by default; one athlete when coming from a profile.
+  const [mode, setMode] = useState(preselectedAthlete ? 'single' : 'squad');
+
+  if (status === 'loading') return <Skeleton className="h-[520px] rounded-xl" />;
+  if (status === 'error') return <Card><EmptyState icon={PiWarningCircle} title="Could not load the form" body="Check your connection and try again." /></Card>;
+  if (testTypes.length === 0) {
+    return (
+      <Card>
+        <EmptyState icon={PiTimer} title="Set up a test first" body="Create a test type, like a 5 km run, before recording results." action={<Link to="/tests?tab=types"><Button icon={PiPlus}>New test type</Button></Link>} />
+      </Card>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <Segmented
+        label="Record for"
+        value={mode}
+        onChange={setMode}
+        options={[{ value: 'squad', label: 'Whole squad', icon: PiUsersThree }, { value: 'single', label: 'One athlete', icon: PiUser }]}
+        className="self-start"
+      />
+      {mode === 'squad'
+        ? <SquadResults athletes={athletes} testTypes={testTypes} templates={templates} />
+        : <SingleResult athletes={athletes} testTypes={testTypes} preselectedAthlete={preselectedAthlete} />}
+    </div>
+  );
+};
+
+const SingleResult = ({ athletes, testTypes, preselectedAthlete }) => {
   const [form, setForm] = useState(() => emptyResultForm(preselectedAthlete || ''));
   // Errors show after the first submit attempt and update live as fields are fixed.
   const [attempted, setAttempted] = useState(false);
@@ -231,7 +299,7 @@ const RecordView = ({ athletes, testTypes, status, preselectedAthlete }) => {
     try {
       const { data } = await api.post('/tests/results', buildPayload(form, testType, true));
       setRecent((list) => [data, ...list].slice(0, 6));
-      // Keep athlete, test and date so a coach can enter a whole squad quickly.
+      // Keep athlete, test and date so the next result is quick to enter.
       setForm((f) => ({ ...emptyResultForm(f.athleteId), testTypeId: f.testTypeId, date: f.date, distanceUnit: f.distanceUnit }));
       setAttempted(false);
       toast.success(`Saved ${data.athlete?.name || 'result'}`);
@@ -241,16 +309,6 @@ const RecordView = ({ athletes, testTypes, status, preselectedAthlete }) => {
       setSaving(false);
     }
   };
-
-  if (status === 'loading') return <Skeleton className="h-[520px] rounded-xl" />;
-  if (status === 'error') return <Card><EmptyState icon={PiWarningCircle} title="Could not load the form" body="Check your connection and try again." /></Card>;
-  if (testTypes.length === 0) {
-    return (
-      <Card>
-        <EmptyState icon={PiTimer} title="Set up a test first" body="Create a test type, like a 5 km run, before recording results." action={<Link to="/tests?tab=types"><Button icon={PiPlus}>New test type</Button></Link>} />
-      </Card>
-    );
-  }
 
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] lg:items-start">
@@ -301,17 +359,23 @@ const Tests = () => {
 
   const [athletes, setAthletes] = useState([]);
   const [testTypes, setTestTypes] = useState([]);
+  const [templates, setTemplates] = useState([]);
   const [status, setStatus] = useState('loading');
 
-  const load = useCallback(async () => {
-    setStatus('loading');
+  const load = useCallback(async ({ quiet = false } = {}) => {
+    if (!quiet) setStatus('loading');
     try {
-      const [a, t] = await Promise.all([api.get('/athletes'), api.get('/tests/types')]);
+      const [a, t, s] = await Promise.all([
+        api.get('/athletes'),
+        api.get('/tests/types'),
+        api.get('/schedules').catch(() => ({ data: [] }))
+      ]);
       setAthletes(a.data);
       setTestTypes(t.data);
+      setTemplates(s.data.filter((x) => x.active));
       setStatus('ready');
     } catch {
-      setStatus('error');
+      if (!quiet) setStatus('error');
     }
   }, []);
 
@@ -323,7 +387,7 @@ const Tests = () => {
     <>
       <PageHeader
         title="Performance"
-        description={tab === 'types' ? 'The benchmark tests you run with your squad.' : 'Record a benchmark result. Pace and speed are calculated for you.'}
+        description={tab === 'types' ? 'The benchmark tests you run with your squad.' : 'Record benchmark results. Pace and speed are calculated for you.'}
         back={fromAthlete && (
           <Link to={`/athlete/${fromAthlete._id}`} className="inline-flex items-center gap-1.5 self-start text-[14px] text-muted hover:text-ink">
             <PiArrowLeft className="h-4 w-4" aria-hidden="true" />{fromAthlete.name}
@@ -334,7 +398,7 @@ const Tests = () => {
       </PageHeader>
       {tab === 'types'
         ? <TestTypesView testTypes={testTypes} setTestTypes={setTestTypes} status={status} reload={load} />
-        : <RecordView athletes={athletes} testTypes={testTypes} status={status} preselectedAthlete={preselected} />}
+        : <RecordView athletes={athletes} testTypes={testTypes} templates={templates} status={status} preselectedAthlete={preselected} />}
     </>
   );
 };

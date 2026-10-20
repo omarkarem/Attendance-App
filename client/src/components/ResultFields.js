@@ -1,8 +1,11 @@
 import React from 'react';
 import { format } from 'date-fns';
-import { PiLightning, PiGauge, PiHeartbeat, PiBarbell } from 'react-icons/pi';
-import { Field, Input, Select, Textarea, DurationInput } from './ui/Form';
-import { CATEGORIES, formatDistance, formatTime, formatPace, fromSeconds, toSeconds, resultDateInput } from '../utils/performance';
+import { PiLightning, PiGauge, PiHeartbeat, PiBarbell, PiClockCounterClockwise } from 'react-icons/pi';
+import { Field, Input, Select, Textarea } from './ui/Form';
+import {
+  CATEGORIES, formatDistance, formatTime, formatPace, resultDateInput, parseDuration,
+  versionOn, lineageOf, describeTarget, formatResultDate
+} from '../utils/performance';
 
 const CYCLING_FIELDS = ['weight', 'avgPower', 'maxPower', 'avgCadence', 'maxCadence', 'avgHeartRate', 'maxHeartRate'];
 
@@ -12,33 +15,42 @@ export const emptyResultForm = (athleteId = '') => ({
   date: format(new Date(), 'yyyy-MM-dd'),
   distanceValue: '',
   distanceUnit: 'km',
-  time: { h: '0', m: '0', s: '0' },
+  timeText: '',
   description: '',
   ...Object.fromEntries(CYCLING_FIELDS.map((k) => [k, '']))
 });
 
-export const formFromResult = (r) => {
+/** Form values for editing a result. The test is shown as its current version (same lineage). */
+export const formFromResult = (r, testTypes = []) => {
   const km = r.distance >= 1000;
+  const lineage = lineageOf(r.testType);
+  const current = testTypes.find((t) => lineageOf(t) === lineage);
   return {
     athleteId: r.athlete?._id || r.athlete || '',
-    testTypeId: r.testType?._id || r.testType || '',
+    testTypeId: current?._id || r.testType?._id || r.testType || '',
     date: resultDateInput(r.date),
     distanceValue: String(km ? parseFloat((r.distance / 1000).toFixed(3)) : r.distance),
     distanceUnit: km ? 'km' : 'm',
-    time: fromSeconds(r.time),
+    timeText: formatTime(r.time),
     description: r.description || '',
     ...Object.fromEntries(CYCLING_FIELDS.map((k) => [k, r[k] != null ? String(r[k]) : '']))
   };
 };
 
-// Fixed targets come from the test type when recording; when editing, values stay editable.
+/**
+ * The values that will be saved. `testType` is a current type with its `versions`; the
+ * version that applied on the form's date supplies fixed targets (the server does the same).
+ * When recording, fixed targets come from that version; when editing, values stay editable.
+ */
 export const effectiveValues = (form, testType, lockTargets) => {
-  const fixedDistance = lockTargets && testType?.measureType === 'Distance' && testType.targetDistance;
-  const fixedTime = lockTargets && testType?.measureType === 'Time' && testType.targetTime;
-  const entered = parseFloat(form.distanceValue);
-  const distance = fixedDistance ? testType.targetDistance : (Number.isFinite(entered) ? entered * (form.distanceUnit === 'km' ? 1000 : 1) : 0);
-  const time = fixedTime ? testType.targetTime : toSeconds(form.time);
-  return { distance, time, fixedDistance: !!fixedDistance, fixedTime: !!fixedTime };
+  const version = versionOn(testType, form.date);
+  const fixedDistance = lockTargets && version?.measureType === 'Distance' && version.targetDistance;
+  const fixedTime = lockTargets && version?.measureType === 'Time' && version.targetTime;
+  const entered = parseFloat(String(form.distanceValue).replace(',', '.'));
+  const distance = fixedDistance ? version.targetDistance : (Number.isFinite(entered) ? entered * (form.distanceUnit === 'km' ? 1000 : 1) : 0);
+  const parsed = parseDuration(form.timeText);
+  const time = fixedTime ? version.targetTime : (parsed || 0);
+  return { distance, time, fixedDistance: !!fixedDistance, fixedTime: !!fixedTime, version, timeUnreadable: !fixedTime && form.timeText.trim() !== '' && parsed == null };
 };
 
 export const validateResult = (form, testType, lockTargets) => {
@@ -46,10 +58,11 @@ export const validateResult = (form, testType, lockTargets) => {
   if (!form.athleteId) errors.athleteId = 'Choose an athlete.';
   if (!form.testTypeId) errors.testTypeId = 'Choose a test.';
   if (!form.date) errors.date = 'Pick a date.';
-  const { distance, time } = effectiveValues(form, testType, lockTargets);
+  else if (form.date > format(new Date(), 'yyyy-MM-dd')) errors.date = 'Results cannot be in the future.';
+  const { distance, time, timeUnreadable } = effectiveValues(form, testType, lockTargets);
   if (testType && !(distance > 0)) errors.distance = 'Enter a distance above zero.';
-  if (testType && !(time > 0)) errors.time = 'Enter a time above zero.';
-  if (parseInt(form.time.m, 10) > 59 || parseInt(form.time.s, 10) > 59) errors.time = 'Minutes and seconds go up to 59.';
+  if (timeUnreadable) errors.time = 'Type a time like 5:32, 1:02:05 or 532.';
+  else if (testType && !(time > 0)) errors.time = 'Enter a time above zero.';
   return errors;
 };
 
@@ -92,11 +105,25 @@ const CyclingFields = ({ form, set }) => (
   </fieldset>
 );
 
+/** Shown when the chosen date falls under an older definition of the test. */
+export const VersionNotice = ({ version, className }) => {
+  if (!version || version.isCurrent !== false) return null;
+  return (
+    <p className={`flex items-start gap-2 rounded-lg bg-accent/10 p-3 text-[13px] text-ink ${className || ''}`}>
+      <PiClockCounterClockwise className="mt-0.5 h-4 w-4 shrink-0 text-accent" aria-hidden="true" />
+      <span>
+        On this date the test was version {version.version} ({describeTarget(version)}), used until {formatResultDate(version.validTo)}.
+        The result is saved under that version so it is compared fairly.
+      </span>
+    </p>
+  );
+};
+
 /** Live calculation shown next to (or under) the form. */
 export const ResultPreview = ({ form, testType, lockTargets, className }) => {
   if (!testType) return null;
-  const { distance, time } = effectiveValues(form, testType, lockTargets);
-  const pace = distance > 0 && time > 0 ? formatPace(distance, time, testType) : '-';
+  const { distance, time, version } = effectiveValues(form, testType, lockTargets);
+  const pace = distance > 0 && time > 0 ? formatPace(distance, time, version) : '-';
   const wkg = testType.category === 'Cycling' && parseFloat(form.avgPower) > 0 && parseFloat(form.weight) > 0
     ? (parseFloat(form.avgPower) / parseFloat(form.weight)).toFixed(2)
     : null;
@@ -115,6 +142,22 @@ export const ResultPreview = ({ form, testType, lockTargets, className }) => {
   );
 };
 
+/** Test picker grouped by sport. */
+export const TestSelect = ({ id, value, onChange, testTypes, invalid }) => (
+  <Select id={id} value={value} onChange={onChange} aria-invalid={invalid}>
+    <option value="">Choose test</option>
+    {CATEGORIES.map((cat) => {
+      const items = testTypes.filter((t) => t.category === cat);
+      if (!items.length) return null;
+      return (
+        <optgroup key={cat} label={cat}>
+          {items.map((t) => <option key={t._id} value={t._id}>{t.title}</option>)}
+        </optgroup>
+      );
+    })}
+  </Select>
+);
+
 /**
  * Athlete, test, date, distance/time, notes and cycling fields.
  * `lockTargets`: true when recording, so fixed targets from the test type are not re-entered.
@@ -122,7 +165,7 @@ export const ResultPreview = ({ form, testType, lockTargets, className }) => {
 const ResultFields = ({ form, setForm, errors = {}, athletes, testTypes, lockTargets, idPrefix = 'result' }) => {
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
   const testType = testTypes.find((t) => t._id === form.testTypeId);
-  const { fixedDistance, fixedTime } = effectiveValues(form, testType, lockTargets);
+  const { fixedDistance, fixedTime, version, time } = effectiveValues(form, testType, lockTargets);
 
   return (
     <div className="flex flex-col gap-5">
@@ -134,30 +177,20 @@ const ResultFields = ({ form, setForm, errors = {}, athletes, testTypes, lockTar
           </Select>
         </Field>
         <Field label="Test" htmlFor={`${idPrefix}-type`} error={errors.testTypeId}>
-          <Select id={`${idPrefix}-type`} value={form.testTypeId} onChange={set('testTypeId')} aria-invalid={!!errors.testTypeId}>
-            <option value="">Choose test</option>
-            {CATEGORIES.map((cat) => {
-              const items = testTypes.filter((t) => t.category === cat);
-              if (!items.length) return null;
-              return (
-                <optgroup key={cat} label={cat}>
-                  {items.map((t) => <option key={t._id} value={t._id}>{t.title}</option>)}
-                </optgroup>
-              );
-            })}
-          </Select>
+          <TestSelect id={`${idPrefix}-type`} value={form.testTypeId} onChange={set('testTypeId')} testTypes={testTypes} invalid={!!errors.testTypeId} />
         </Field>
       </div>
 
       <Field label="Date" htmlFor={`${idPrefix}-date`} error={errors.date}>
         <Input id={`${idPrefix}-date`} type="date" value={form.date} max={format(new Date(), 'yyyy-MM-dd')} onChange={set('date')} aria-invalid={!!errors.date} />
       </Field>
+      <VersionNotice version={testType && version} className="-mt-2" />
 
       <div className="grid gap-5 sm:grid-cols-2">
         {fixedDistance ? (
           <Field label="Distance">
             <div className="flex h-11 items-center justify-between rounded-md bg-surface-2/60 px-3.5 text-[15px]">
-              <span className="font-medium tabular-nums">{formatDistance(testType.targetDistance)}</span>
+              <span className="font-medium tabular-nums">{formatDistance(version.targetDistance)}</span>
               <span className="text-[12px] text-muted">Set by test</span>
             </div>
           </Field>
@@ -175,13 +208,18 @@ const ResultFields = ({ form, setForm, errors = {}, athletes, testTypes, lockTar
         {fixedTime ? (
           <Field label="Time">
             <div className="flex h-11 items-center justify-between rounded-md bg-surface-2/60 px-3.5 text-[15px]">
-              <span className="font-medium tabular-nums">{formatTime(testType.targetTime)}</span>
+              <span className="font-medium tabular-nums">{formatTime(version.targetTime)}</span>
               <span className="text-[12px] text-muted">Set by test</span>
             </div>
           </Field>
         ) : (
-          <Field label="Time" error={errors.time}>
-            <DurationInput idPrefix={`${idPrefix}-time`} value={form.time} onChange={(time) => setForm((f) => ({ ...f, time }))} invalid={!!errors.time} />
+          <Field
+            label="Time"
+            htmlFor={`${idPrefix}-time`}
+            error={errors.time}
+            hint={time > 0 ? `= ${formatTime(time)}` : 'Type 5:32, or just 532 on a phone keypad.'}
+          >
+            <Input id={`${idPrefix}-time`} inputMode="decimal" value={form.timeText} onChange={set('timeText')} placeholder="mm:ss" autoComplete="off" aria-invalid={!!errors.time} className="font-mono tabular-nums" />
           </Field>
         )}
       </div>

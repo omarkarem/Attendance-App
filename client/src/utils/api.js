@@ -23,13 +23,12 @@ api.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
-    // The coach's local calendar day. The server creates template sessions up to it,
-    // so it matches what the coach calls "today" rather than the server's UTC date.
-    if ((config.method || 'get') === 'get') {
-      const d = new Date();
-      const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-      config.params = { today, ...config.params };
-    }
+    // The coach's local calendar day, on every request. The server creates template
+    // sessions up to it and uses it for "today" defaults (join dates, test dates),
+    // so it matches what the coach calls today rather than the server's UTC date.
+    const d = new Date();
+    const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    config.params = { today, ...config.params };
     return config;
   },
   (error) => Promise.reject(error)
