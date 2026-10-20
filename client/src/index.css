@@ -1,161 +1,89 @@
+@import '@fontsource-variable/geist/wght.css';
+@import '@fontsource-variable/inter/wght.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-
 @layer base {
-  * {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
+  :root {
+    color-scheme: dark;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
   }
 
   body {
-    @apply bg-dark-900 text-white font-sans antialiased;
-    min-height: 100vh;
-    overflow-x: hidden;
+    @apply bg-canvas font-sans text-[15px] text-ink antialiased;
+    min-height: 100dvh;
+    letter-spacing: -0.01em;
+    /* DESIGN.md body voice: Inter with its character variants */
+    font-feature-settings: 'cv01', 'cv05', 'cv09', 'cv11', 'ss03', 'ss07';
+  }
+
+  ::selection {
+    background: rgba(0, 153, 255, 0.35);
+  }
+
+  /* One focus treatment everywhere: the blue signal ring. */
+  :focus-visible {
+    outline: 2px solid #0099ff;
+    outline-offset: 2px;
+  }
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline: none;
   }
 
   ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 10px;
+    height: 10px;
   }
   ::-webkit-scrollbar-track {
-    @apply bg-dark-800;
+    background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    @apply bg-dark-500 rounded-full;
-  }
-  ::-webkit-scrollbar-thumb:hover {
-    @apply bg-dark-400;
-  }
-
-  input, select, textarea {
-    @apply bg-dark-800 border border-dark-600 text-white rounded-xl px-4 py-3
-           focus:outline-none focus:ring-2 focus:ring-accent-500/50 focus:border-accent-500
-           transition-all duration-200 placeholder-dark-400;
+    background: #262626;
+    border-radius: 999px;
+    border: 3px solid #090909;
   }
 
-  input, select {
-    min-height: 52px;
+  input[type='date'],
+  input[type='time'] {
+    color-scheme: dark;
+  }
+  input[type='date']::-webkit-calendar-picker-indicator,
+  input[type='time']::-webkit-calendar-picker-indicator {
+    opacity: 0.6;
+    cursor: pointer;
   }
 
-  input[type="date"] {
-    appearance: none;
-    -webkit-appearance: none;
-    min-height: 52px;
-    display: block;
-    width: 100%;
-  }
-  
-  input[type="date"]::-webkit-date-and-time-value {
-    min-height: 1.5em;
-  }
-
-  button {
-    @apply transition-all duration-200 active:scale-95;
-  }
-}
-
-@layer components {
-  .glass-card {
-    @apply bg-dark-800/60 backdrop-blur-xl border border-dark-600/50 rounded-2xl shadow-glass;
-  }
-
-  .glass-card-hover {
-    @apply glass-card hover:bg-dark-700/60 hover:border-dark-500/50 hover:shadow-glow transition-all duration-300;
-  }
-
-  .gradient-text {
-    @apply bg-gradient-to-r from-accent-400 via-neon-blue to-neon-purple bg-clip-text text-transparent;
-  }
-
-  .btn-primary {
-    @apply bg-gradient-to-r from-accent-500 to-accent-600 text-white font-semibold
-           px-6 py-3 rounded-xl shadow-glow hover:shadow-glow-lg hover:from-accent-400
-           hover:to-accent-500 active:scale-95 transition-all duration-200
-           disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none;
-  }
-
-  .btn-secondary {
-    @apply bg-dark-700 text-dark-200 font-medium px-6 py-3 rounded-xl
-           border border-dark-500 hover:bg-dark-600 hover:text-white
-           active:scale-95 transition-all duration-200;
-  }
-
-  .btn-danger {
-    @apply bg-red-500/20 text-red-400 font-medium px-6 py-3 rounded-xl
-           border border-red-500/30 hover:bg-red-500/30 hover:text-red-300
-           active:scale-95 transition-all duration-200;
-  }
-
-  .badge-new {
-    @apply inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold
-           rounded-full bg-gradient-to-r from-amber-500/20 to-orange-500/20
-           text-amber-400 border border-amber-500/30;
-  }
-
-  .nav-item {
-    @apply flex flex-col items-center gap-1 px-3 py-2 rounded-xl text-dark-400
-           hover:text-accent-400 transition-all duration-200;
-  }
-
-  .nav-item-active {
-    @apply text-accent-400;
-  }
-
-  .toggle-present {
-    @apply w-full flex items-center justify-between p-4 rounded-xl
-           bg-dark-700/50 border border-dark-600/50 transition-all duration-200
-           cursor-pointer select-none active:scale-[0.98];
-  }
-
-  .toggle-present-active {
-    @apply bg-accent-500/10 border-accent-500/40 shadow-glow;
-  }
-
-  .page-container {
-    @apply min-h-screen md:pb-8 md:pl-72 px-4 md:pr-8 lg:pl-80 lg:pr-12 md:pt-6 max-w-[1600px] mx-auto;
-    padding-top: calc(env(safe-area-inset-top) + 5rem);
-    padding-bottom: calc(env(safe-area-inset-bottom) + 6rem);
-  }
-  @media (min-width: 768px) {
-    .page-container {
-      padding-top: 1.5rem;
-      padding-bottom: 2rem;
-    }
-  }
-
-  .page-title {
-    @apply text-2xl md:text-3xl font-bold mb-6;
-  }
-
-  .stat-card {
-    @apply glass-card p-5 flex flex-col gap-2;
-  }
-
-  .modal-overlay {
-    @apply fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center
-           animate-fade-in p-4;
-  }
-
-  .modal-content {
-    @apply glass-card p-6 w-full max-w-md animate-slide-up mx-auto
-           rounded-2xl max-h-[85vh] overflow-y-auto;
-  }
-
-  .grid-cell-present {
-    @apply bg-accent-500/20 text-accent-400 font-semibold;
-  }
-
-  .grid-cell-absent {
-    @apply bg-red-500/10 text-red-400/60;
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
   }
 }
 
 @layer utilities {
-  .text-balance {
-    text-wrap: balance;
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
   }
 }

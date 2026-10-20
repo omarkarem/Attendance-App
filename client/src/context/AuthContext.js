@@ -11,9 +11,9 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const checkAuth = async () => {
       const token = localStorage.getItem('token');
-      const savedUser = localStorage.getItem('user');
 
-      if (token && savedUser) {
+      // The token alone is enough; /auth/me returns the user.
+      if (token) {
         try {
           const { data } = await api.get('/auth/me');
           setUser(data.user);

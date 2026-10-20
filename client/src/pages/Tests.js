@@ -1,707 +1,341 @@
-import React, { useState, useEffect } from 'react';
-import { HiOutlinePlus, HiOutlineTrash, HiOutlineChartBar, HiOutlineCog, HiOutlinePencil } from 'react-icons/hi2';
-import { FaBicycle } from 'react-icons/fa';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { useSearchParams } from 'react-router-dom';
-import useAuth from '../hooks/useAuth';
+import { PiPlus, PiPencilSimple, PiTrash, PiArrowLeft, PiTimer, PiWarningCircle, PiCheckCircle } from 'react-icons/pi';
 import api from '../utils/api';
+import usePageTitle from '../hooks/usePageTitle';
+import { apiError } from '../utils/browser';
+import { Card, CardHeader, PageHeader, Skeleton, EmptyState } from '../components/ui/Display';
+import Button from '../components/ui/Button';
+import Menu from '../components/ui/Menu';
+import Dialog from '../components/ui/Dialog';
+import { Field, Input, Select, DurationInput } from '../components/ui/Form';
+import { Segmented } from '../components/ui/Segmented';
+import { useConfirm } from '../components/ui/ConfirmProvider';
+import PerformanceTabs from '../components/PerformanceTabs';
+import ResultFields, { emptyResultForm, validateResult, buildPayload, ResultPreview } from '../components/ResultFields';
+import { CATEGORIES, categoryMeta, formatDistance, formatTime, formatPace, formatResultDate, fromSeconds, toSeconds } from '../utils/performance';
 
-const formatTime = (totalSeconds) => {
-  const h = Math.floor(totalSeconds / 3600);
-  const m = Math.floor((totalSeconds % 3600) / 60);
-  const s = totalSeconds % 60;
-  return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-};
+// ---------- Test types ----------
 
-const formatPace = (distanceMeters, timeSeconds, category) => {
-  if (!distanceMeters || !timeSeconds) return '-';
+const emptyType = { title: '', category: 'Running', measureType: 'Distance', distanceValue: '', distanceUnit: 'm', time: { h: '0', m: '0', s: '0' } };
 
-  if (category === 'Running') {
-    // min/km
-    const distanceKm = distanceMeters / 1000;
-    const timeMinutes = timeSeconds / 60;
-    const paceMinKm = timeMinutes / distanceKm;
-    const paceMins = Math.floor(paceMinKm);
-    const paceSecs = Math.round((paceMinKm - paceMins) * 60);
-    return `${paceMins}:${paceSecs.toString().padStart(2, '0')} min/km`;
-  } else if (category === 'Swimming') {
-    // min/100m
-    const distance100m = distanceMeters / 100;
-    const timeMinutes = timeSeconds / 60;
-    const paceMin100 = timeMinutes / distance100m;
-    const paceMins = Math.floor(paceMin100);
-    const paceSecs = Math.round((paceMin100 - paceMins) * 60);
-    return `${paceMins}:${paceSecs.toString().padStart(2, '0')} min/100m`;
-  } else if (category === 'Cycling') {
-    // km/h
-    const distanceKm = distanceMeters / 1000;
-    const timeHours = timeSeconds / 3600;
-    const speed = distanceKm / timeHours;
-    return `${speed.toFixed(2)} km/h`;
-  }
-  return '-';
-};
-
-const Tests = () => {
-  useAuth();
-  const [searchParams] = useSearchParams();
-  const [activeTab, setActiveTab] = useState('record'); // 'record' or 'manage'
-  // eslint-disable-next-line no-unused-vars
-  const [loading, setLoading] = useState(false);
-  const [editingTypeId, setEditingTypeId] = useState(null);
-
-  // Data
-  const [athletes, setAthletes] = useState([]);
-  const [testTypes, setTestTypes] = useState([]);
-
-  // Forms
-  const [typeForm, setTypeForm] = useState({ 
-    title: '', category: 'Running', measureType: 'Distance',
-    targetDistanceValue: '', targetDistanceUnit: 'm',
-    targetTimeH: '0', targetTimeM: '0', targetTimeS: '0'
-  });
-  const [resultForm, setResultForm] = useState({
-    athleteId: '',
-    testTypeId: '',
-    date: new Date().toISOString().split('T')[0],
-    distanceValue: '',
-    distanceUnit: 'km', // 'm' or 'km'
-    timeH: '0',
-    timeM: '0',
-    timeS: '0',
-    description: '',
-    // Cycling fields
-    weight: '',
-    avgPower: '', maxPower: '',
-    avgCadence: '', maxCadence: '',
-    avgHeartRate: '', maxHeartRate: ''
-  });
-
-  const fetchData = async () => {
-    try {
-      setLoading(true);
-      const [athletesRes, typesRes] = await Promise.all([
-        api.get('/athletes'),
-        api.get('/tests/types')
-      ]);
-
-      setAthletes(athletesRes.data);
-      setTestTypes(typesRes.data);
-
-      // Pre-select athlete from query param (e.g. coming from Athlete Profile)
-      const preselectedId = searchParams.get('athleteId');
-      if (preselectedId) {
-        setResultForm(prev => ({ ...prev, athleteId: preselectedId }));
-      }
-    } catch (error) {
-      toast.error('Failed to load data');
-      console.error(error);
-    } finally {
-      setLoading(false);
-    }
-  };
+const TestTypeDialog = ({ open, onClose, testType, onSaved }) => {
+  const [form, setForm] = useState(emptyType);
+  const [errors, setErrors] = useState({});
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    fetchData();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // --- Handlers for Test Types ---
-  const handleEditTestType = (testType) => {
-    setEditingTypeId(testType._id);
-    
-    let targetDistanceValue = '';
-    let targetDistanceUnit = 'm';
-    if (testType.measureType === 'Distance' && testType.targetDistance) {
-      if (testType.targetDistance >= 1000 && testType.targetDistance % 1000 === 0) {
-        targetDistanceValue = (testType.targetDistance / 1000).toString();
-        targetDistanceUnit = 'km';
-      } else {
-        targetDistanceValue = testType.targetDistance.toString();
-        targetDistanceUnit = 'm';
-      }
-    }
-
-    let targetTimeH = '0', targetTimeM = '0', targetTimeS = '0';
-    if (testType.measureType === 'Time' && testType.targetTime) {
-      targetTimeH = Math.floor(testType.targetTime / 3600).toString();
-      targetTimeM = Math.floor((testType.targetTime % 3600) / 60).toString();
-      targetTimeS = (testType.targetTime % 60).toString();
-    }
-
-    setTypeForm({
+    if (!open) return;
+    setErrors({});
+    if (!testType) { setForm(emptyType); return; }
+    const d = testType.targetDistance || 0;
+    const km = d >= 1000 && d % 1000 === 0;
+    setForm({
       title: testType.title,
       category: testType.category,
       measureType: testType.measureType,
-      targetDistanceValue,
-      targetDistanceUnit,
-      targetTimeH,
-      targetTimeM,
-      targetTimeS
+      distanceValue: d ? String(km ? d / 1000 : d) : '',
+      distanceUnit: km ? 'km' : 'm',
+      time: fromSeconds(testType.targetTime || 0)
     });
-    setActiveTab('manage');
-  };
+  }, [open, testType]);
 
-  const cancelEditTestType = () => {
-    setEditingTypeId(null);
-    setTypeForm({ 
-      title: '', category: 'Running', measureType: 'Distance',
-      targetDistanceValue: '', targetDistanceUnit: 'm',
-      targetTimeH: '0', targetTimeM: '0', targetTimeS: '0'
-    });
-  };
+  const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
-  const handleCreateTestType = async (e) => {
+  const submit = async (e) => {
     e.preventDefault();
+    const next = {};
+    const distance = parseFloat(form.distanceValue) * (form.distanceUnit === 'km' ? 1000 : 1);
+    const time = toSeconds(form.time);
+    if (!form.title.trim()) next.title = 'Give the test a name.';
+    if (form.measureType === 'Distance' && !(distance > 0)) next.target = 'Enter the distance athletes cover.';
+    if (form.measureType === 'Time' && !(time > 0)) next.target = 'Enter how long the test lasts.';
+    setErrors(next);
+    if (Object.keys(next).length) return;
+
+    setSaving(true);
     try {
-      const payload = { 
-        title: typeForm.title, 
-        category: typeForm.category, 
-        measureType: typeForm.measureType 
+      const body = {
+        title: form.title.trim(),
+        category: form.category,
+        measureType: form.measureType,
+        ...(form.measureType === 'Distance' ? { targetDistance: distance } : { targetTime: time })
       };
-      if (typeForm.measureType === 'Distance') {
-        payload.targetDistance = typeForm.targetDistanceUnit === 'km' ? parseFloat(typeForm.targetDistanceValue) * 1000 : parseFloat(typeForm.targetDistanceValue);
-      } else {
-        payload.targetTime = (parseInt(typeForm.targetTimeH) || 0) * 3600 + (parseInt(typeForm.targetTimeM) || 0) * 60 + (parseInt(typeForm.targetTimeS) || 0);
-      }
-
-      let updatedType;
-      if (editingTypeId) {
-        const { data } = await api.put(`/tests/types/${editingTypeId}`, payload);
-        updatedType = data;
-        setTestTypes(testTypes.map(t => t._id === editingTypeId ? updatedType : t));
-        toast.success('Test type updated');
-        setEditingTypeId(null);
-      } else {
-        const { data } = await api.post('/tests/types', payload);
-        updatedType = data;
-        setTestTypes([...testTypes, updatedType]);
-        toast.success('Test type created');
-      }
-      
-      setTypeForm({ 
-        title: '', category: 'Running', measureType: 'Distance',
-        targetDistanceValue: '', targetDistanceUnit: 'm',
-        targetTimeH: '0', targetTimeM: '0', targetTimeS: '0'
-      });
-    } catch (error) {
-      toast.error('Network error');
+      const { data } = testType ? await api.put(`/tests/types/${testType._id}`, body) : await api.post('/tests/types', body);
+      onSaved(data, !testType);
+      onClose();
+    } catch (err) {
+      setErrors({ form: apiError(err, 'Could not save the test type.') });
+    } finally {
+      setSaving(false);
     }
   };
-
-  const handleDeleteTestType = async (id) => {
-    if (!window.confirm('Delete this test type?')) return;
-    try {
-      await api.delete(`/tests/types/${id}`);
-      setTestTypes(testTypes.filter(t => t._id !== id));
-      toast.success('Test type deleted');
-    } catch (error) {
-      toast.error('Network error');
-    }
-  };
-
-  // --- Handlers for Results ---
-  const handleRecordResult = async (e) => {
-    e.preventDefault();
-    if (!resultForm.athleteId || !resultForm.testTypeId) {
-      return toast.error('Please select athlete and test type');
-    }
-
-    const selectedTestType = testTypes.find(t => t._id === resultForm.testTypeId);
-    if (!selectedTestType) {
-      return toast.error('Please select test type');
-    }
-
-    const distanceMeters = selectedTestType.measureType === 'Distance' && selectedTestType.targetDistance
-      ? selectedTestType.targetDistance
-      : (resultForm.distanceUnit === 'km' 
-          ? parseFloat(resultForm.distanceValue) * 1000 
-          : parseFloat(resultForm.distanceValue));
-      
-    const timeSeconds = selectedTestType.measureType === 'Time' && selectedTestType.targetTime
-      ? selectedTestType.targetTime
-      : ((parseInt(resultForm.timeH) || 0) * 3600 + 
-         (parseInt(resultForm.timeM) || 0) * 60 + 
-         (parseInt(resultForm.timeS) || 0));
-
-    if (!distanceMeters || !timeSeconds) {
-      return toast.error('Please enter valid distance and time');
-    }
-
-    try {
-      const payload = {
-        athleteId: resultForm.athleteId,
-        testTypeId: resultForm.testTypeId,
-        date: resultForm.date,
-        distance: distanceMeters,
-        time: timeSeconds,
-        description: resultForm.description
-      };
-
-      // Include cycling fields if category is Cycling
-      if (selectedTestType?.category === 'Cycling') {
-        const numOrNull = (v) => v !== '' && v !== undefined ? parseFloat(v) : undefined;
-        payload.weight = numOrNull(resultForm.weight);
-        payload.avgPower = numOrNull(resultForm.avgPower);
-        payload.maxPower = numOrNull(resultForm.maxPower);
-        payload.avgCadence = numOrNull(resultForm.avgCadence);
-        payload.maxCadence = numOrNull(resultForm.maxCadence);
-        payload.avgHeartRate = numOrNull(resultForm.avgHeartRate);
-        payload.maxHeartRate = numOrNull(resultForm.maxHeartRate);
-      }
-
-      await api.post('/tests/results', payload);
-      
-      setResultForm({
-        ...resultForm,
-        distanceValue: '',
-        timeH: '0',
-        timeM: '0',
-        timeS: '0',
-        description: '',
-        weight: '',
-        avgPower: '', maxPower: '',
-        avgCadence: '', maxCadence: '',
-        avgHeartRate: '', maxHeartRate: ''
-      });
-      toast.success('Result recorded');
-    } catch (error) {
-      toast.error('Network error');
-    }
-  };
-
-  const selectedTestType = testTypes.find(t => t._id === resultForm.testTypeId);
-
-  const currentDistanceMeters = (selectedTestType && selectedTestType.measureType === 'Distance' && selectedTestType.targetDistance)
-    ? selectedTestType.targetDistance
-    : (resultForm.distanceUnit === 'km' 
-      ? parseFloat(resultForm.distanceValue || 0) * 1000 
-      : parseFloat(resultForm.distanceValue || 0));
-      
-  const currentTimeSeconds = (selectedTestType && selectedTestType.measureType === 'Time' && selectedTestType.targetTime)
-    ? selectedTestType.targetTime
-    : ((parseInt(resultForm.timeH) || 0) * 3600 + 
-       (parseInt(resultForm.timeM) || 0) * 60 + 
-       (parseInt(resultForm.timeS) || 0));
-  
-  const calculatedPace = formatPace(currentDistanceMeters, currentTimeSeconds, selectedTestType?.category);
 
   return (
-    <div className="page-container">
-      <div className="flex flex-col md:flex-row md:items-end justify-between mb-8 gap-4">
-        <div>
-          <h1 className="page-title !mb-2">Performance Tests</h1>
-          <p className="text-dark-400">Manage and track athlete test results.</p>
-        </div>
-      </div>
-
-      {/* Tabs */}
-      <div className="flex gap-4 mb-8 border-b border-dark-600/50 pb-2">
-        <button
-          onClick={() => setActiveTab('record')}
-          className={`flex items-center gap-2 px-4 py-2 font-medium rounded-lg transition-colors ${
-            activeTab === 'record' ? 'bg-accent-500/20 text-accent-400' : 'text-dark-400 hover:text-white'
-          }`}
-        >
-          <HiOutlineChartBar className="w-5 h-5" />
-          Record Results
-        </button>
-        <button
-          onClick={() => setActiveTab('manage')}
-          className={`flex items-center gap-2 px-4 py-2 font-medium rounded-lg transition-colors ${
-            activeTab === 'manage' ? 'bg-accent-500/20 text-accent-400' : 'text-dark-400 hover:text-white'
-          }`}
-        >
-          <HiOutlineCog className="w-5 h-5" />
-          Manage Test Types
-        </button>
-      </div>
-
-      {activeTab === 'manage' ? (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Create Test Type Form */}
-          <div className="lg:col-span-1 glass-card p-6 self-start">
-            <h2 className="text-xl font-bold text-white mb-4">{editingTypeId ? 'Edit Test Type' : 'Add Test Type'}</h2>
-            <form onSubmit={handleCreateTestType} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-dark-300 mb-1">Title</label>
-                <input
-                  type="text"
-                  required
-                  value={typeForm.title}
-                  onChange={e => setTypeForm({ ...typeForm, title: e.target.value })}
-                  placeholder="e.g. 5km Run, 400m Swim"
-                  className="w-full bg-dark-800 border border-dark-600 rounded-xl px-4 py-3 text-white placeholder-dark-500 focus:outline-none focus:border-accent-500 focus:ring-1 focus:ring-accent-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-dark-300 mb-1">Category</label>
-                <select
-                  value={typeForm.category}
-                  onChange={e => setTypeForm({ ...typeForm, category: e.target.value })}
-                  className="w-full bg-dark-800 border border-dark-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-accent-500"
-                >
-                  <option value="Running">Running</option>
-                  <option value="Swimming">Swimming</option>
-                  <option value="Cycling">Cycling</option>
-                  <option value="Other">Other</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-dark-300 mb-1">Measure Type</label>
-                <select
-                  value={typeForm.measureType}
-                  onChange={e => setTypeForm({ ...typeForm, measureType: e.target.value })}
-                  className="w-full bg-dark-800 border border-dark-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-accent-500"
-                >
-                  <option value="Distance">Fixed Distance Target</option>
-                  <option value="Time">Fixed Time Target</option>
-                </select>
-              </div>
-
-              {typeForm.measureType === 'Distance' ? (
-                <div>
-                  <label className="block text-sm font-medium text-dark-300 mb-1">Target Distance</label>
-                  <div className="flex gap-2">
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      required
-                      value={typeForm.targetDistanceValue}
-                      onChange={e => setTypeForm({ ...typeForm, targetDistanceValue: e.target.value })}
-                      className="flex-1 bg-dark-800 border border-dark-600 rounded-xl px-4 py-3 text-white placeholder-dark-500 focus:outline-none focus:border-accent-500"
-                      placeholder="Distance"
-                    />
-                    <select
-                      value={typeForm.targetDistanceUnit}
-                      onChange={e => setTypeForm({ ...typeForm, targetDistanceUnit: e.target.value })}
-                      className="w-24 bg-dark-800 border border-dark-600 rounded-xl px-2 py-3 text-white focus:outline-none focus:border-accent-500"
-                    >
-                      <option value="m">m</option>
-                      <option value="km">km</option>
-                    </select>
-                  </div>
-                </div>
-              ) : (
-                <div>
-                  <label className="block text-sm font-medium text-dark-300 mb-1">Target Time</label>
-                  <div className="grid grid-cols-[1fr_auto_1fr_auto_1fr] gap-2 items-center">
-                    <input
-                      type="number"
-                      min="0"
-                      value={typeForm.targetTimeH}
-                      onChange={e => setTypeForm({ ...typeForm, targetTimeH: e.target.value })}
-                      className="w-full min-w-0 bg-dark-800 border border-dark-600 rounded-xl px-2 py-3 text-white text-center focus:outline-none focus:border-accent-500"
-                      placeholder="hh"
-                    />
-                    <span className="text-dark-400">:</span>
-                    <input
-                      type="number"
-                      min="0"
-                      max="59"
-                      value={typeForm.targetTimeM}
-                      onChange={e => setTypeForm({ ...typeForm, targetTimeM: e.target.value })}
-                      className="w-full min-w-0 bg-dark-800 border border-dark-600 rounded-xl px-2 py-3 text-white text-center focus:outline-none focus:border-accent-500"
-                      placeholder="mm"
-                    />
-                    <span className="text-dark-400">:</span>
-                    <input
-                      type="number"
-                      min="0"
-                      max="59"
-                      value={typeForm.targetTimeS}
-                      onChange={e => setTypeForm({ ...typeForm, targetTimeS: e.target.value })}
-                      className="w-full min-w-0 bg-dark-800 border border-dark-600 rounded-xl px-2 py-3 text-white text-center focus:outline-none focus:border-accent-500"
-                      placeholder="ss"
-                    />
-                  </div>
-                </div>
-              )}
-              <div className="flex gap-2 pt-2">
-                <button
-                  type="submit"
-                  className="flex-1 btn-primary flex items-center justify-center gap-2"
-                >
-                  {editingTypeId ? <HiOutlinePencil className="w-5 h-5" /> : <HiOutlinePlus className="w-5 h-5" />}
-                  {editingTypeId ? 'Update' : 'Add'}
-                </button>
-                {editingTypeId && (
-                  <button
-                    type="button"
-                    onClick={cancelEditTestType}
-                    className="px-4 py-2 bg-dark-700 text-white rounded-xl font-medium hover:bg-dark-600 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                )}
-              </div>
-            </form>
-          </div>
-
-          {/* List Test Types */}
-          <div className="lg:col-span-2 glass-card p-6">
-            <h2 className="text-xl font-bold text-white mb-4">Existing Test Types</h2>
-            <div className="space-y-3">
-              {testTypes.length === 0 ? (
-                <p className="text-dark-400">No test types configured yet.</p>
-              ) : (
-                testTypes.map(type => (
-                  <div key={type._id} className="flex items-center justify-between bg-dark-800 p-4 rounded-xl border border-dark-600/50">
-                    <div>
-                      <h3 className="font-bold text-white">{type.title}</h3>
-                      <p className="text-sm text-dark-400">{type.category} • {type.measureType}</p>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => handleEditTestType(type)}
-                        className="p-2 text-dark-400 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors"
-                      >
-                        <HiOutlinePencil className="w-5 h-5" />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteTestType(type._id)}
-                        className="p-2 text-dark-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
-                      >
-                        <HiOutlineTrash className="w-5 h-5" />
-                      </button>
-                    </div>
-                  </div>
-                ))
-              )}
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title={testType ? 'Edit test type' : 'New test type'}
+      description="Fix either the distance (time is measured) or the time (distance is measured)."
+      footer={(
+        <>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="submit" form="type-form" loading={saving}>{testType ? 'Save changes' : 'Create test'}</Button>
+        </>
+      )}
+    >
+      <form id="type-form" onSubmit={submit} className="flex flex-col gap-5" noValidate>
+        <Field label="Name" htmlFor="type-title" error={errors.title}>
+          <Input id="type-title" value={form.title} onChange={set('title')} placeholder="5 km run" aria-invalid={!!errors.title} data-autofocus />
+        </Field>
+        <Field label="Sport" htmlFor="type-category">
+          <Select id="type-category" value={form.category} onChange={set('category')}>
+            {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+          </Select>
+        </Field>
+        <Field label="What is fixed?">
+          <Segmented
+            label="What is fixed"
+            stretch
+            value={form.measureType}
+            onChange={(v) => setForm((f) => ({ ...f, measureType: v }))}
+            options={[{ value: 'Distance', label: 'Distance' }, { value: 'Time', label: 'Time' }]}
+          />
+        </Field>
+        {form.measureType === 'Distance' ? (
+          <Field label="Target distance" htmlFor="type-distance" error={errors.target}>
+            <div className="flex gap-2">
+              <Input id="type-distance" type="number" inputMode="decimal" min="0" step="0.01" value={form.distanceValue} onChange={set('distanceValue')} aria-invalid={!!errors.target} />
+              <Select value={form.distanceUnit} onChange={set('distanceUnit')} aria-label="Distance unit" className="w-24 shrink-0">
+                <option value="m">m</option>
+                <option value="km">km</option>
+              </Select>
             </div>
-          </div>
-        </div>
+          </Field>
+        ) : (
+          <Field label="Target time" error={errors.target}>
+            <DurationInput idPrefix="type-time" value={form.time} onChange={(time) => setForm((f) => ({ ...f, time }))} invalid={!!errors.target} />
+          </Field>
+        )}
+        {testType && <p className="text-[12px] text-muted">Results already recorded keep their own distance and time.</p>}
+        {errors.form && <p role="alert" className="text-[13px] text-danger">{errors.form}</p>}
+      </form>
+    </Dialog>
+  );
+};
+
+const targetLabel = (t) => (t.measureType === 'Distance'
+  ? `Fixed distance, ${t.targetDistance ? formatDistance(t.targetDistance) : 'not set'}`
+  : `Fixed time, ${t.targetTime ? formatTime(t.targetTime) : 'not set'}`);
+
+const TestTypesView = ({ testTypes, setTestTypes, status, reload }) => {
+  const confirm = useConfirm();
+  const [dialog, setDialog] = useState({ open: false, testType: null });
+
+  const remove = async (t) => {
+    const ok = await confirm({
+      title: `Delete “${t.title}”?`,
+      body: 'It disappears from the record form and export choices. Results already recorded stay in history.',
+      confirmLabel: 'Delete test type',
+      tone: 'danger'
+    });
+    if (!ok) return;
+    try {
+      await api.delete(`/tests/types/${t._id}`);
+      setTestTypes((list) => list.filter((x) => x._id !== t._id));
+      toast.success('Test type deleted');
+    } catch (err) {
+      toast.error(apiError(err, 'Could not delete the test type'));
+    }
+  };
+
+  if (status === 'loading') return <Skeleton className="h-64 rounded-xl" />;
+  if (status === 'error') return <Card><EmptyState icon={PiWarningCircle} title="Could not load test types" action={<Button onClick={reload}>Try again</Button>} /></Card>;
+
+  const groups = CATEGORIES.map((c) => ({ category: c, items: testTypes.filter((t) => t.category === c) })).filter((g) => g.items.length);
+
+  return (
+    <>
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <p className="text-[14px] text-muted">{testTypes.length} {testTypes.length === 1 ? 'test' : 'tests'} set up</p>
+        <Button icon={PiPlus} onClick={() => setDialog({ open: true, testType: null })}>New test type</Button>
+      </div>
+      {testTypes.length === 0 ? (
+        <Card>
+          <EmptyState icon={PiTimer} title="No test types yet" body="Create the benchmarks you run, like a 5 km run, a 400 m swim or a 20 minute FTP." action={<Button icon={PiPlus} onClick={() => setDialog({ open: true, testType: null })}>New test type</Button>} />
+        </Card>
       ) : (
-        <div className="max-w-2xl mx-auto">
-          {/* Record Result Form */}
-          <div className="glass-card p-6">
-            <h2 className="text-xl font-bold text-white mb-4">Record Result</h2>
-            <form onSubmit={handleRecordResult} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-dark-300 mb-1">Athlete</label>
-                <select
-                  required
-                  value={resultForm.athleteId}
-                  onChange={e => setResultForm({ ...resultForm, athleteId: e.target.value })}
-                  className="w-full bg-dark-800 border border-dark-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-accent-500"
-                >
-                  <option value="">Select Athlete</option>
-                  {athletes.map(a => (
-                    <option key={a._id} value={a._id}>{a.name}</option>
+        <div className="grid gap-4 md:grid-cols-2">
+          {groups.map(({ category, items }) => {
+            const { Icon } = categoryMeta(category);
+            return (
+              <Card key={category} className="p-2">
+                <p className="flex items-center gap-2 px-3 pb-1 pt-3 text-[13px] font-medium text-muted">
+                  <Icon className="h-4 w-4" aria-hidden="true" />{category}
+                </p>
+                <ul>
+                  {items.map((t) => (
+                    <li key={t._id} className="flex items-center gap-3 rounded-md px-3 py-2.5 hover:bg-surface-2/60">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[15px] font-medium">{t.title}</p>
+                        <p className="text-[12px] text-muted">{targetLabel(t)}</p>
+                      </div>
+                      <Menu
+                        label={`Actions for ${t.title}`}
+                        items={[
+                          { label: 'Edit', icon: PiPencilSimple, onSelect: () => setDialog({ open: true, testType: t }) },
+                          { label: 'Delete', icon: PiTrash, tone: 'danger', onSelect: () => remove(t) }
+                        ]}
+                      />
+                    </li>
                   ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-dark-300 mb-1">Test Type</label>
-                <select
-                  required
-                  value={resultForm.testTypeId}
-                  onChange={e => setResultForm({ ...resultForm, testTypeId: e.target.value })}
-                  className="w-full bg-dark-800 border border-dark-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-accent-500"
-                >
-                  <option value="">Select Test Type</option>
-                  {testTypes.map(t => (
-                    <option key={t._id} value={t._id}>{t.title} ({t.category})</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-dark-300 mb-1">Date</label>
-                <input
-                  type="date"
-                  required
-                  value={resultForm.date}
-                  onChange={e => setResultForm({ ...resultForm, date: e.target.value })}
-                  className="w-full bg-dark-800 border border-dark-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-accent-500"
-                />
-              </div>
-
-              {(!selectedTestType || selectedTestType.measureType !== 'Distance' || !selectedTestType.targetDistance) ? (
-                <div>
-                  <label className="block text-sm font-medium text-dark-300 mb-1">Distance</label>
-                  <div className="flex gap-2">
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      required
-                      value={resultForm.distanceValue}
-                      onChange={e => setResultForm({ ...resultForm, distanceValue: e.target.value })}
-                      className="flex-1 bg-dark-800 border border-dark-600 rounded-xl px-4 py-3 text-white placeholder-dark-500 focus:outline-none focus:border-accent-500"
-                      placeholder="Distance"
-                    />
-                    <select
-                      value={resultForm.distanceUnit}
-                      onChange={e => setResultForm({ ...resultForm, distanceUnit: e.target.value })}
-                      className="w-24 bg-dark-800 border border-dark-600 rounded-xl px-2 py-3 text-white focus:outline-none focus:border-accent-500"
-                    >
-                      <option value="m">m</option>
-                      <option value="km">km</option>
-                    </select>
-                  </div>
-                </div>
-              ) : (
-                <div className="bg-dark-800/50 border border-dark-600/50 rounded-xl px-4 py-3 text-dark-300 flex justify-between">
-                  <span>Target Distance</span>
-                  <span className="text-white font-medium">
-                    {selectedTestType.targetDistance >= 1000 ? `${selectedTestType.targetDistance / 1000} km` : `${selectedTestType.targetDistance} m`}
-                  </span>
-                </div>
-              )}
-
-              {(!selectedTestType || selectedTestType.measureType !== 'Time' || !selectedTestType.targetTime) ? (
-                <div>
-                  <label className="block text-sm font-medium text-dark-300 mb-1">Time</label>
-                  <div className="grid grid-cols-[1fr_auto_1fr_auto_1fr] gap-2 items-center">
-                    <input
-                      type="number"
-                      min="0"
-                      value={resultForm.timeH}
-                      onChange={e => setResultForm({ ...resultForm, timeH: e.target.value })}
-                      className="w-full min-w-0 bg-dark-800 border border-dark-600 rounded-xl px-2 py-3 text-white text-center focus:outline-none focus:border-accent-500"
-                      placeholder="hh"
-                    />
-                    <span className="text-dark-400">:</span>
-                    <input
-                      type="number"
-                      min="0"
-                      max="59"
-                      value={resultForm.timeM}
-                      onChange={e => setResultForm({ ...resultForm, timeM: e.target.value })}
-                      className="w-full min-w-0 bg-dark-800 border border-dark-600 rounded-xl px-2 py-3 text-white text-center focus:outline-none focus:border-accent-500"
-                      placeholder="mm"
-                    />
-                    <span className="text-dark-400">:</span>
-                    <input
-                      type="number"
-                      min="0"
-                      max="59"
-                      value={resultForm.timeS}
-                      onChange={e => setResultForm({ ...resultForm, timeS: e.target.value })}
-                      className="w-full min-w-0 bg-dark-800 border border-dark-600 rounded-xl px-2 py-3 text-white text-center focus:outline-none focus:border-accent-500"
-                      placeholder="ss"
-                    />
-                  </div>
-                </div>
-              ) : (
-                <div className="bg-dark-800/50 border border-dark-600/50 rounded-xl px-4 py-3 text-dark-300 flex justify-between">
-                  <span>Target Time</span>
-                  <span className="text-white font-medium">
-                    {formatTime(selectedTestType.targetTime)}
-                  </span>
-                </div>
-              )}
-
-              <div>
-                <label className="block text-sm font-medium text-dark-300 mb-1">Description / Comments</label>
-                <textarea
-                  rows="3"
-                  value={resultForm.description}
-                  onChange={e => setResultForm({ ...resultForm, description: e.target.value })}
-                  className="w-full bg-dark-800 border border-dark-600 rounded-xl px-4 py-3 text-white placeholder-dark-500 focus:outline-none focus:border-accent-500 resize-none"
-                  placeholder="e.g., Felt great, windy conditions..."
-                />
-              </div>
-
-              {/* Cycling Data Section */}
-              {selectedTestType?.category === 'Cycling' && (
-                <div className="border border-green-500/20 rounded-xl p-4 space-y-4 bg-green-500/5">
-                  <h3 className="text-sm font-semibold text-green-400 flex items-center gap-2">
-                    <FaBicycle className="w-4 h-4" />
-                    Cycling Data
-                  </h3>
-
-                  {/* Weight */}
-                  <div>
-                    <label className="block text-xs font-medium text-dark-300 mb-1">Weight (kg)</label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      value={resultForm.weight}
-                      onChange={e => setResultForm({ ...resultForm, weight: e.target.value })}
-                      className="w-full bg-dark-800 border border-dark-600 rounded-xl px-4 py-2.5 text-white placeholder-dark-500 focus:outline-none focus:border-accent-500 text-sm"
-                      placeholder="e.g. 72.5"
-                    />
-                  </div>
-
-                  {/* Power */}
-                  <div>
-                    <label className="block text-xs font-medium text-dark-300 mb-1">Power (watts)</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <span className="block text-[10px] text-dark-500 mb-0.5">Avg (FTP)</span>
-                        <input type="number" min="0" value={resultForm.avgPower} onChange={e => setResultForm({ ...resultForm, avgPower: e.target.value })} className="w-full bg-dark-800 border border-dark-600 rounded-xl px-3 py-2.5 text-white text-sm text-center focus:outline-none focus:border-accent-500" placeholder="Avg" />
-                      </div>
-                      <div>
-                        <span className="block text-[10px] text-dark-500 mb-0.5">Max</span>
-                        <input type="number" min="0" value={resultForm.maxPower} onChange={e => setResultForm({ ...resultForm, maxPower: e.target.value })} className="w-full bg-dark-800 border border-dark-600 rounded-xl px-3 py-2.5 text-white text-sm text-center focus:outline-none focus:border-accent-500" placeholder="Max" />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Cadence */}
-                  <div>
-                    <label className="block text-xs font-medium text-dark-300 mb-1">Cadence (RPM)</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <span className="block text-[10px] text-dark-500 mb-0.5">Avg</span>
-                        <input type="number" min="0" value={resultForm.avgCadence} onChange={e => setResultForm({ ...resultForm, avgCadence: e.target.value })} className="w-full bg-dark-800 border border-dark-600 rounded-xl px-3 py-2.5 text-white text-sm text-center focus:outline-none focus:border-accent-500" placeholder="Avg" />
-                      </div>
-                      <div>
-                        <span className="block text-[10px] text-dark-500 mb-0.5">Max</span>
-                        <input type="number" min="0" value={resultForm.maxCadence} onChange={e => setResultForm({ ...resultForm, maxCadence: e.target.value })} className="w-full bg-dark-800 border border-dark-600 rounded-xl px-3 py-2.5 text-white text-sm text-center focus:outline-none focus:border-accent-500" placeholder="Max" />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Heart Rate */}
-                  <div>
-                    <label className="block text-xs font-medium text-dark-300 mb-1">Heart Rate (BPM)</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <span className="block text-[10px] text-dark-500 mb-0.5">Avg</span>
-                        <input type="number" min="0" value={resultForm.avgHeartRate} onChange={e => setResultForm({ ...resultForm, avgHeartRate: e.target.value })} className="w-full bg-dark-800 border border-dark-600 rounded-xl px-3 py-2.5 text-white text-sm text-center focus:outline-none focus:border-accent-500" placeholder="Avg" />
-                      </div>
-                      <div>
-                        <span className="block text-[10px] text-dark-500 mb-0.5">Max</span>
-                        <input type="number" min="0" value={resultForm.maxHeartRate} onChange={e => setResultForm({ ...resultForm, maxHeartRate: e.target.value })} className="w-full bg-dark-800 border border-dark-600 rounded-xl px-3 py-2.5 text-white text-sm text-center focus:outline-none focus:border-accent-500" placeholder="Max" />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {selectedTestType && (
-                <div className="bg-dark-800 border border-accent-500/30 rounded-xl p-4 mt-4 space-y-2">
-                  <div className="flex justify-between items-center">
-                    <span className="text-dark-300 text-sm">Calculated {selectedTestType.category === 'Cycling' ? 'Speed' : 'Pace'}</span>
-                    <span className="text-accent-400 font-bold">{calculatedPace}</span>
-                  </div>
-                  {selectedTestType.category === 'Cycling' && resultForm.avgPower && resultForm.weight && (
-                    <div className="flex justify-between items-center">
-                      <span className="text-dark-300 text-sm">W/kg</span>
-                      <span className="text-green-400 font-bold">{(parseFloat(resultForm.avgPower) / parseFloat(resultForm.weight)).toFixed(2)}</span>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <button
-                type="submit"
-                className="w-full btn-primary flex items-center justify-center gap-2 mt-4"
-              >
-                <HiOutlineChartBar className="w-5 h-5" />
-                Record Result
-              </button>
-            </form>
-          </div>
+                </ul>
+              </Card>
+            );
+          })}
         </div>
       )}
+      <TestTypeDialog
+        open={dialog.open}
+        testType={dialog.testType}
+        onClose={() => setDialog({ open: false, testType: null })}
+        onSaved={(data, created) => {
+          setTestTypes((list) => (created ? [...list, data] : list.map((x) => (x._id === data._id ? data : x))).sort((a, b) => a.title.localeCompare(b.title)));
+          toast.success(created ? 'Test type created' : 'Test type updated');
+        }}
+      />
+    </>
+  );
+};
+
+// ---------- Record ----------
+
+const RecordView = ({ athletes, testTypes, status, preselectedAthlete }) => {
+  const [form, setForm] = useState(() => emptyResultForm(preselectedAthlete || ''));
+  // Errors show after the first submit attempt and update live as fields are fixed.
+  const [attempted, setAttempted] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [recent, setRecent] = useState([]);
+
+  useEffect(() => { if (preselectedAthlete) setForm((f) => ({ ...f, athleteId: preselectedAthlete })); }, [preselectedAthlete]);
+
+  const testType = testTypes.find((t) => t._id === form.testTypeId);
+  const errors = attempted ? validateResult(form, testType, true) : {};
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setAttempted(true);
+    if (Object.keys(validateResult(form, testType, true)).length) return;
+    setSaving(true);
+    try {
+      const { data } = await api.post('/tests/results', buildPayload(form, testType, true));
+      setRecent((list) => [data, ...list].slice(0, 6));
+      // Keep athlete, test and date so a coach can enter a whole squad quickly.
+      setForm((f) => ({ ...emptyResultForm(f.athleteId), testTypeId: f.testTypeId, date: f.date, distanceUnit: f.distanceUnit }));
+      setAttempted(false);
+      toast.success(`Saved ${data.athlete?.name || 'result'}`);
+    } catch (err) {
+      toast.error(apiError(err, 'Could not save the result'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (status === 'loading') return <Skeleton className="h-[520px] rounded-xl" />;
+  if (status === 'error') return <Card><EmptyState icon={PiWarningCircle} title="Could not load the form" body="Check your connection and try again." /></Card>;
+  if (testTypes.length === 0) {
+    return (
+      <Card>
+        <EmptyState icon={PiTimer} title="Set up a test first" body="Create a test type, like a 5 km run, before recording results." action={<Link to="/tests?tab=types"><Button icon={PiPlus}>New test type</Button></Link>} />
+      </Card>
+    );
+  }
+
+  return (
+    <div className="grid gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] lg:items-start">
+      <Card className="p-5 md:p-6">
+        <form onSubmit={submit} noValidate>
+          <ResultFields form={form} setForm={setForm} errors={errors} athletes={athletes} testTypes={testTypes} lockTargets idPrefix="record" />
+          <Button type="submit" size="lg" loading={saving} className="mt-6 w-full sm:w-auto">Save result</Button>
+        </form>
+      </Card>
+      <div className="flex flex-col gap-6 lg:sticky lg:top-10">
+        <Card className="p-5 md:p-6">
+          {testType ? (
+            <ResultPreview form={form} testType={testType} lockTargets />
+          ) : (
+            <p className="text-[14px] text-muted">Choose a test to see the calculated pace or speed here.</p>
+          )}
+        </Card>
+        {recent.length > 0 && (
+          <Card className="p-5 md:p-6">
+            <CardHeader title="Saved just now" description="Results recorded during this visit" />
+            <ul className="mt-3 flex flex-col divide-y divide-line-soft">
+              {recent.map((r) => (
+                <li key={r._id} className="flex items-center gap-3 py-2.5">
+                  <PiCheckCircle className="h-5 w-5 shrink-0 text-success" aria-hidden="true" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[14px] font-medium">{r.athlete?.name}</p>
+                    <p className="truncate text-[12px] text-muted">{r.testType?.title} · {formatResultDate(r.date, { month: 'short', day: 'numeric' })}</p>
+                  </div>
+                  <span className="text-[13px] font-medium tabular-nums">{formatPace(r.distance, r.time, r.testType)}</span>
+                </li>
+              ))}
+            </ul>
+            <Link to="/test-results" className="mt-3 inline-block text-[14px] font-medium text-accent hover:underline">See all results</Link>
+          </Card>
+        )}
+      </div>
     </div>
+  );
+};
+
+// ---------- Page ----------
+
+const Tests = () => {
+  const [params] = useSearchParams();
+  const tab = params.get('tab') === 'types' ? 'types' : 'record';
+  const preselected = params.get('athleteId');
+  usePageTitle(tab === 'types' ? 'Test types' : 'Record test');
+
+  const [athletes, setAthletes] = useState([]);
+  const [testTypes, setTestTypes] = useState([]);
+  const [status, setStatus] = useState('loading');
+
+  const load = useCallback(async () => {
+    setStatus('loading');
+    try {
+      const [a, t] = await Promise.all([api.get('/athletes'), api.get('/tests/types')]);
+      setAthletes(a.data);
+      setTestTypes(t.data);
+      setStatus('ready');
+    } catch {
+      setStatus('error');
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const fromAthlete = preselected && athletes.find((a) => a._id === preselected);
+
+  return (
+    <>
+      <PageHeader
+        title="Performance"
+        description={tab === 'types' ? 'The benchmark tests you run with your squad.' : 'Record a benchmark result. Pace and speed are calculated for you.'}
+        back={fromAthlete && (
+          <Link to={`/athlete/${fromAthlete._id}`} className="inline-flex items-center gap-1.5 self-start text-[14px] text-muted hover:text-ink">
+            <PiArrowLeft className="h-4 w-4" aria-hidden="true" />{fromAthlete.name}
+          </Link>
+        )}
+      >
+        <PerformanceTabs />
+      </PageHeader>
+      {tab === 'types'
+        ? <TestTypesView testTypes={testTypes} setTestTypes={setTestTypes} status={status} reload={load} />
+        : <RecordView athletes={athletes} testTypes={testTypes} status={status} preselectedAthlete={preselected} />}
+    </>
   );
 };
 

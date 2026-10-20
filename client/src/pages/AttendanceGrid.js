@@ -1,326 +1,206 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { format, startOfWeek, endOfWeek, addWeeks, addMonths } from 'date-fns';
+import { PiCheckBold, PiXBold, PiTable, PiWarningCircle, PiDownloadSimple } from 'react-icons/pi';
 import api from '../utils/api';
-import toast from 'react-hot-toast';
-import { format, startOfWeek, addWeeks, subWeeks, endOfWeek } from 'date-fns';
-import {
-  HiOutlineTableCells,
-  HiOutlineChevronLeft,
-  HiOutlineChevronRight,
-  HiOutlineCheckCircle,
-  HiOutlineXCircle,
-  HiOutlineSparkles
-} from 'react-icons/hi2';
+import usePageTitle from '../hooks/usePageTitle';
+import { Card, PageHeader, Badge, Skeleton, EmptyState } from '../components/ui/Display';
+import Button from '../components/ui/Button';
+import { Switch } from '../components/ui/Form';
+import { Segmented } from '../components/ui/Segmented';
+import DateStepper from '../components/DateStepper';
+import cx from '../utils/cx';
 
-const monthNames = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December'
-];
+// Sessions are stored at 12:00 UTC on their calendar day, so read the day in UTC.
+const sessionDay = (s) => new Date(s.date);
+const dayNum = (s) => sessionDay(s).getUTCDate();
+const weekday = (s) => sessionDay(s).toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' });
+
+const Cell = ({ state }) => {
+  if (state === 'present') {
+    return <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-success/20 text-success"><PiCheckBold className="h-3.5 w-3.5" aria-label="Present" /></span>;
+  }
+  if (state === 'absent') {
+    return <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-danger/15 text-danger"><PiXBold className="h-3 w-3" aria-label="Absent" /></span>;
+  }
+  return <span className="inline-block h-[3px] w-3 rounded-full bg-line" aria-label={state === 'unexpected' ? 'Not expected' : 'No record'} />;
+};
+
+const rateTone = (pct) => (pct >= 75 ? 'text-success' : pct < 50 ? 'text-danger' : 'text-ink');
 
 const AttendanceGrid = () => {
-  const [viewMode, setViewMode] = useState('monthly'); // 'monthly' | 'weekly'
-  
-  // Monthly State
-  const now = new Date();
-  const [month, setMonth] = useState(now.getMonth() + 1);
-  const [year, setYear] = useState(now.getFullYear());
-  
-  // Weekly State (Starts on Sunday)
-  const [currentWeekStart, setCurrentWeekStart] = useState(startOfWeek(now));
-
+  usePageTitle('Attendance');
+  const [mode, setMode] = useState('month');
+  const [anchor, setAnchor] = useState(() => new Date());
   const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [sessionFilter, setSessionFilter] = useState('all');
-  const [showAllAthletes, setShowAllAthletes] = useState(false);
+  const [status, setStatus] = useState('loading');
+  const [nameFilter, setNameFilter] = useState('all');
+  const [expectedOnly, setExpectedOnly] = useState(true);
 
-  useEffect(() => {
-    fetchData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewMode, month, year, currentWeekStart]);
+  const weekStart = startOfWeek(anchor);
 
-  const fetchData = async () => {
-    setLoading(true);
+  const load = useCallback(async () => {
+    setStatus('loading');
     try {
-      if (viewMode === 'monthly') {
-        const { data: result } = await api.get(`/attendance/monthly?month=${month}&year=${year}`);
-        setData(result);
-      } else {
-        const end = endOfWeek(currentWeekStart);
-        const startStr = format(currentWeekStart, 'yyyy-MM-dd');
-        const endStr = format(end, 'yyyy-MM-dd');
-        const { data: result } = await api.get(`/attendance/range?startDate=${startStr}&endDate=${endStr}`);
-        setData(result);
-      }
-    } catch (error) {
-      toast.error('Failed to load attendance data');
-    } finally {
-      setLoading(false);
+      const url = mode === 'month'
+        ? `/attendance/monthly?month=${anchor.getMonth() + 1}&year=${anchor.getFullYear()}`
+        : `/attendance/range?startDate=${format(startOfWeek(anchor), 'yyyy-MM-dd')}&endDate=${format(endOfWeek(anchor), 'yyyy-MM-dd')}`;
+      const { data: result } = await api.get(url);
+      setData(result);
+      setStatus('ready');
+    } catch {
+      setStatus('error');
     }
-  };
+  }, [mode, anchor]);
 
-  const changeMonth = (dir) => {
-    let newMonth = month + dir;
-    let newYear = year;
-    if (newMonth > 12) { newMonth = 1; newYear++; }
-    if (newMonth < 1) { newMonth = 12; newYear--; }
-    setMonth(newMonth);
-    setYear(newYear);
-  };
+  useEffect(() => { load(); }, [load]);
 
-  const changeWeek = (dir) => {
-    if (dir > 0) {
-      setCurrentWeekStart(addWeeks(currentWeekStart, 1));
-    } else {
-      setCurrentWeekStart(subWeeks(currentWeekStart, 1));
-    }
-  };
+  const names = useMemo(() => [...new Set((data?.sessions || []).map((s) => s.name))], [data]);
+  // A filter for a session that does not exist in this period would hide everything.
+  useEffect(() => { if (nameFilter !== 'all' && !names.includes(nameFilter)) setNameFilter('all'); }, [names, nameFilter]);
 
-  // Build grid data
-  const buildGrid = () => {
-    if (!data || !data.sessions.length) return null;
+  const grid = useMemo(() => {
+    if (!data) return null;
+    const sessions = data.sessions.filter((s) => nameFilter === 'all' || s.name === nameFilter);
+    const lookup = new Map(data.attendance.map((a) => [`${a.athlete?._id || a.athlete}-${a.session}`, a.present]));
+    const expectedIn = (s, athleteId) => !s.assignedAthletes?.length || s.assignedAthletes.map(String).includes(athleteId);
 
-    let sessions = data.sessions;
-    if (sessionFilter !== 'all') {
-      sessions = sessions.filter(s => s.name === sessionFilter);
-    }
+    const stateOf = (s, athleteId) => {
+      const rec = lookup.get(`${athleteId}-${s._id}`);
+      const expected = expectedIn(s, athleteId);
+      if (rec === true) return 'present';
+      if (rec === false && expected) return 'absent';
+      return expected ? 'none' : 'unexpected';
+    };
 
-    // Build lookup: athleteId-sessionId -> present
-    const lookup = {};
-    data.attendance.forEach(a => {
-      const athleteId = a.athlete?._id || a.athlete;
-      const sessionId = a.session;
-      lookup[`${athleteId}-${sessionId}`] = a.present;
+    const rows = data.athletes.map((a) => {
+      const states = sessions.map((s) => stateOf(s, a._id));
+      const counted = states.filter((x) => x === 'present' || x === 'absent').length;
+      const present = states.filter((x) => x === 'present').length;
+      const anyExpected = sessions.some((s) => expectedIn(s, a._id));
+      return { athlete: a, states, counted, present, pct: counted ? Math.round((present / counted) * 100) : null, anyExpected };
     });
 
-    // Get unique session names for filter
-    const uniqueNames = [...new Set(data.sessions.map(s => s.name))];
+    const totals = sessions.map((_, i) => rows.filter((r) => r.states[i] === 'present').length);
+    const hasRosters = sessions.some((s) => s.assignedAthletes?.length);
+    return { sessions, rows, totals, hasRosters };
+  }, [data, nameFilter]);
 
-    return { sessions, lookup, uniqueNames };
-  };
+  const rows = grid ? grid.rows.filter((r) => !expectedOnly || !grid.hasRosters || r.anyExpected) : [];
+  const multiplePerDay = grid ? new Set(grid.sessions.map(dayNum)).size < grid.sessions.length : false;
 
-  const gridData = !loading ? buildGrid() : null;
-
-  const visibleAthletes = data?.athletes?.filter(athlete => {
-    if (showAllAthletes || sessionFilter === 'all') return true;
-    
-    let expectedInAny = false;
-    if (gridData && gridData.sessions) {
-      gridData.sessions.forEach(s => {
-        const assigned = s.assignedAthletes || [];
-        if (assigned.length === 0 || assigned.includes(athlete._id)) {
-          expectedInAny = true;
-        }
-      });
-    }
-    return expectedInAny;
-  }) || [];
+  const periodTitle = mode === 'month' ? format(anchor, 'MMMM') : `Week of ${format(weekStart, 'MMM d')}`;
+  const periodSub = mode === 'month' ? format(anchor, 'yyyy') : `${format(weekStart, 'MMM d')} to ${format(endOfWeek(anchor), 'MMM d, yyyy')}`;
+  const step = (dir) => setAnchor((d) => (mode === 'month' ? addMonths(d, dir) : addWeeks(d, dir)));
 
   return (
-    <div className="page-container">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-        <h1 className="page-title flex items-center gap-2 !mb-0">
-          <HiOutlineTableCells className="w-7 h-7 text-accent-400" />
-          Attendance Grid
-        </h1>
-        
-        {/* View Mode Toggle */}
-        <div className="flex bg-dark-800 p-1 rounded-xl">
-          <button
-            onClick={() => setViewMode('monthly')}
-            className={`flex-1 md:w-32 py-2 text-sm font-medium rounded-lg transition-all ${
-              viewMode === 'monthly' ? 'bg-dark-600 text-white shadow' : 'text-dark-400 hover:text-white'
-            }`}
-          >
-            Monthly
-          </button>
-          <button
-            onClick={() => setViewMode('weekly')}
-            className={`flex-1 md:w-32 py-2 text-sm font-medium rounded-lg transition-all ${
-              viewMode === 'weekly' ? 'bg-dark-600 text-white shadow' : 'text-dark-400 hover:text-white'
-            }`}
-          >
-            Weekly
-          </button>
-        </div>
+    <>
+      <PageHeader
+        title="Attendance"
+        description="Who came to what, session by session."
+        actions={<Link to="/export"><Button variant="secondary" icon={PiDownloadSimple}>Export</Button></Link>}
+      />
+
+      <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center">
+        <Segmented label="Period" value={mode} onChange={setMode} options={[{ value: 'month', label: 'Month' }, { value: 'week', label: 'Week' }]} />
+        <DateStepper title={periodTitle} subtitle={periodSub} onPrev={() => step(-1)} onNext={() => step(1)} className="md:w-80" />
+        {grid?.hasRosters && (
+          <label className="flex items-center gap-3 text-[14px] text-muted md:ml-auto">
+            <Switch checked={expectedOnly} onChange={setExpectedOnly} label="Only athletes expected in this period" />
+            Expected only
+          </label>
+        )}
       </div>
 
-      {/* Date Selector */}
-      <div className="glass-card p-3 mb-6 flex items-center justify-between">
-        <button
-          onClick={() => viewMode === 'monthly' ? changeMonth(-1) : changeWeek(-1)}
-          className="w-10 h-10 rounded-xl flex items-center justify-center text-dark-400 hover:text-white hover:bg-dark-600 transition-all"
-        >
-          <HiOutlineChevronLeft className="w-5 h-5" />
-        </button>
-        <div className="text-center">
-          {viewMode === 'monthly' ? (
-            <>
-              <p className="font-semibold text-white">{monthNames[month - 1]}</p>
-              <p className="text-xs text-dark-400">{year}</p>
-            </>
-          ) : (
-            <>
-              <p className="font-semibold text-white">Week of {format(currentWeekStart, 'MMM d')}</p>
-              <p className="text-xs text-dark-400">{format(currentWeekStart, 'yyyy')}</p>
-            </>
-          )}
-        </div>
-        <button
-          onClick={() => viewMode === 'monthly' ? changeMonth(1) : changeWeek(1)}
-          className="w-10 h-10 rounded-xl flex items-center justify-center text-dark-400 hover:text-white hover:bg-dark-600 transition-all"
-        >
-          <HiOutlineChevronRight className="w-5 h-5" />
-        </button>
-      </div>
-
-      {/* Session Filter */}
-      {gridData?.uniqueNames && gridData.uniqueNames.length > 1 && (
-        <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
-          <button
-            onClick={() => setSessionFilter('all')}
-            className={`px-4 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition-all ${
-              sessionFilter === 'all'
-                ? 'bg-accent-500/20 text-accent-400 border border-accent-500/30'
-                : 'bg-dark-700 text-dark-400 border border-dark-600'
-            }`}
-          >
-            All Sessions
-          </button>
-          {gridData.uniqueNames.map(name => (
-            <button
-              key={name}
-              onClick={() => setSessionFilter(name)}
-              className={`px-4 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition-all ${
-                sessionFilter === name
-                  ? 'bg-accent-500/20 text-accent-400 border border-accent-500/30'
-                  : 'bg-dark-700 text-dark-400 border border-dark-600'
-              }`}
-            >
-              {name}
-            </button>
-          ))}
-        </div>
+      {names.length > 1 && (
+        <Segmented
+          label="Session"
+          value={nameFilter}
+          onChange={setNameFilter}
+          options={[{ value: 'all', label: 'All sessions' }, ...names.map((n) => ({ value: n, label: n }))]}
+          className="mb-4"
+        />
       )}
 
-      {/* Athlete View Toggle */}
-      {sessionFilter !== 'all' && gridData && gridData.sessions.some(s => s.assignedAthletes?.length > 0) && (
-        <div className="flex justify-end mb-4 animate-fade-in">
-          <button
-            onClick={() => setShowAllAthletes(!showAllAthletes)}
-            className={`text-xs px-3 py-1.5 rounded-lg transition-all ${
-              showAllAthletes 
-                ? 'bg-dark-600 text-white' 
-                : 'bg-accent-500/20 text-accent-400 border border-accent-500/30'
-            }`}
-          >
-            {showAllAthletes ? 'Show Assigned Only' : 'Assigned Only'}
-          </button>
-        </div>
-      )}
-
-      {/* Grid Table */}
-      {loading ? (
-        <div className="flex items-center justify-center h-32">
-          <div className="w-8 h-8 border-2 border-accent-400 border-t-transparent rounded-full animate-spin" />
-        </div>
-      ) : gridData && gridData.sessions.length > 0 ? (
-        <div className="glass-card overflow-hidden animate-fade-in">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-dark-700/50">
-                  <th className="sticky left-0 z-10 bg-dark-700 px-4 py-3 text-left font-semibold text-dark-300 min-w-[140px]">
-                    Athlete
-                  </th>
-                  {gridData.sessions.map(s => (
-                    <th key={s._id} className="px-2 py-3 text-center font-medium text-dark-400 min-w-[50px]">
-                      <div className="text-xs">{viewMode === 'weekly' ? format(new Date(s.date), 'EEE d') : new Date(s.date).getDate()}</div>
-                      <div className="text-[10px] text-dark-500 whitespace-normal break-words w-16 mx-auto leading-tight">{s.name}</div>
-                    </th>
-                  ))}
-                  <th className="px-3 py-3 text-center font-semibold text-dark-300 min-w-[50px]">%</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleAthletes.map((athlete, idx) => {
-                  let total = 0;
-                  let present = 0;
-                  gridData.sessions.forEach(s => {
-                    const isPresent = gridData.lookup[`${athlete._id}-${s._id}`];
-                    const assigned = s.assignedAthletes || [];
-                    const hasAssignments = assigned.length > 0;
-                    const isExpected = hasAssignments ? assigned.includes(athlete._id) : true;
-
-                    if ((isExpected && isPresent !== undefined) || isPresent === true) {
-                      // Ignore old "false" records if the athlete is not expected
-                      if (isExpected || isPresent) {
-                        // Wait, the condition above already ensures either (isExpected and isPresent !== undefined) OR isPresent === true.
-                        // So if they are NOT expected and isPresent is false, it won't enter here!
-                        total++;
-                        if (isPresent) present++;
-                      }
-                    }
-                  });
-                  const pct = total > 0 ? Math.round((present / total) * 100) : 0;
-
-                  return (
-                    <tr key={athlete._id} className={idx % 2 === 0 ? 'bg-dark-800/30' : ''}>
-                      <td className="sticky left-0 z-10 px-4 py-3 font-medium text-white whitespace-nowrap bg-dark-800 border-r border-dark-700/50">
-                        <div className="flex items-center gap-2">
-                          <span className="truncate max-w-[120px]">{athlete.name}</span>
-                          {athlete.isNewAthlete && (
-                            <HiOutlineSparkles className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
-                          )}
-                        </div>
-                      </td>
-                      {gridData.sessions.map(s => {
-                        const isPresent = gridData.lookup[`${athlete._id}-${s._id}`];
-                        const assigned = s.assignedAthletes || [];
-                        const hasAssignments = assigned.length > 0;
-                        const isExpected = hasAssignments ? assigned.includes(athlete._id) : true;
-
-                        if (isPresent === undefined || (!isExpected && !isPresent)) {
-                          return (
-                            <td key={s._id} className="px-2 py-3 text-center text-dark-500">
-                              -
-                            </td>
-                          );
-                        }
-                        return (
-                          <td key={s._id} className={`px-2 py-3 text-center ${isPresent ? 'grid-cell-present' : 'grid-cell-absent'}`}>
-                            {isPresent ? (
-                              <HiOutlineCheckCircle className="w-5 h-5 mx-auto" />
-                            ) : (
-                              <HiOutlineXCircle className="w-5 h-5 mx-auto" />
-                            )}
-                          </td>
-                        );
-                      })}
-                      <td className={`px-3 py-3 text-center font-bold ${
-                        pct >= 75 ? 'text-accent-400' : pct >= 50 ? 'text-amber-400' : 'text-red-400'
-                      }`}>
-                        {pct}%
+      {status === 'loading' ? (
+        <Skeleton className="h-96 rounded-xl" />
+      ) : status === 'error' ? (
+        <Card><EmptyState icon={PiWarningCircle} title="Could not load attendance" action={<Button onClick={load}>Try again</Button>} /></Card>
+      ) : !grid || grid.sessions.length === 0 ? (
+        <Card>
+          <EmptyState
+            icon={PiTable}
+            title={`No sessions in ${mode === 'month' ? format(anchor, 'MMMM yyyy') : 'this week'}`}
+            body="Sessions show up here once they are created. Template sessions are created when you open that day."
+            action={<Link to="/sessions"><Button variant="secondary">Go to sessions</Button></Link>}
+          />
+        </Card>
+      ) : rows.length === 0 ? (
+        <Card><EmptyState icon={PiTable} title="No athletes to show" body="Nobody active is expected at these sessions." /></Card>
+      ) : (
+        <>
+          <Card className="overflow-hidden animate-rise">
+            <div className="max-h-[70dvh] overflow-auto">
+              <table className="w-max min-w-full border-separate border-spacing-0 text-[13px]">
+                <thead>
+                  <tr>
+                    <th scope="col" className="sticky left-0 top-0 z-[3] min-w-[160px] border-b border-r border-line-soft bg-surface-1 px-4 py-3 text-left text-[12px] font-medium text-muted">Athlete</th>
+                    {grid.sessions.map((s) => (
+                      <th key={s._id} scope="col" title={`${s.name}, ${weekday(s)} ${dayNum(s)}${s.time ? ` at ${s.time}` : ''}`} className="sticky top-0 z-[2] min-w-[44px] border-b border-line-soft bg-surface-1 px-1 py-2 text-center font-medium">
+                        <span className="block text-[11px] text-muted">{weekday(s).slice(0, 2)}</span>
+                        <span className="block text-[14px] tabular-nums text-ink">{dayNum(s)}</span>
+                        {multiplePerDay && nameFilter === 'all' && <span className="mx-auto block max-w-[52px] truncate text-[10px] text-muted">{s.name}</span>}
+                      </th>
+                    ))}
+                    <th scope="col" className="sticky right-0 top-0 z-[3] min-w-[84px] border-b border-l border-line-soft bg-surface-1 px-3 py-3 text-right text-[12px] font-medium text-muted">Rate</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map(({ athlete, states, counted, present, pct }) => (
+                    <tr key={athlete._id} className="group">
+                      <th scope="row" className="sticky left-0 z-[1] border-b border-r border-line-soft bg-surface-1 px-4 py-2 text-left font-medium group-hover:bg-surface-2">
+                        <Link to={`/athlete/${athlete._id}`} className="flex max-w-[180px] items-center gap-2 hover:underline">
+                          <span className="truncate">{athlete.name}</span>
+                          {athlete.isNewAthlete && <Badge tone="new">New</Badge>}
+                        </Link>
+                      </th>
+                      {states.map((st, i) => (
+                        <td key={grid.sessions[i]._id} className="border-b border-line-soft px-1 py-1.5 text-center group-hover:bg-surface-2/50">
+                          <Cell state={st} />
+                        </td>
+                      ))}
+                      <td className="sticky right-0 z-[1] border-b border-l border-line-soft bg-surface-1 px-3 py-2 text-right group-hover:bg-surface-2">
+                        {pct == null ? <span className="text-muted">-</span> : (
+                          <>
+                            <span className={cx('block text-[14px] font-semibold tabular-nums', rateTone(pct))}>{pct}%</span>
+                            <span className="block text-[11px] text-muted tabular-nums">{present}/{counted}</span>
+                          </>
+                        )}
                       </td>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <th scope="row" className="sticky bottom-0 left-0 z-[3] border-r border-t border-line bg-surface-1 px-4 py-2.5 text-left text-[12px] font-medium text-muted">Present</th>
+                    {grid.totals.map((t, i) => (
+                      <td key={grid.sessions[i]._id} className="sticky bottom-0 z-[2] border-t border-line bg-surface-1 px-1 py-2.5 text-center text-[13px] font-semibold tabular-nums">{t}</td>
+                    ))}
+                    <td className="sticky bottom-0 right-0 z-[3] border-l border-t border-line bg-surface-1" />
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </Card>
+          <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-[12px] text-muted">
+            <span className="inline-flex items-center gap-2"><Cell state="present" />Present</span>
+            <span className="inline-flex items-center gap-2"><Cell state="absent" />Absent</span>
+            <span className="inline-flex items-center gap-2"><Cell state="none" />Not recorded or not expected</span>
+            <span>Rate counts only sessions where the athlete was recorded.</span>
           </div>
-        </div>
-      ) : (
-        <div className="glass-card p-8 text-center animate-fade-in">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-dark-700 flex items-center justify-center">
-            <HiOutlineTableCells className="w-8 h-8 text-dark-400" />
-          </div>
-          <h3 className="text-lg font-semibold mb-2">No attendance data</h3>
-          <p className="text-dark-400">
-            {viewMode === 'monthly' 
-              ? `No sessions found for ${monthNames[month - 1]} ${year}` 
-              : `No sessions found for the week of ${format(currentWeekStart, 'MMM d, yyyy')}`}
-          </p>
-        </div>
+        </>
       )}
-    </div>
+    </>
   );
 };
 

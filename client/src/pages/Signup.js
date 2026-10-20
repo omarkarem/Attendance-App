@@ -1,164 +1,68 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import useAuth from '../hooks/useAuth';
-import toast from 'react-hot-toast';
-import { HiOutlineEnvelope, HiOutlineLockClosed, HiOutlineUser, HiOutlineEye, HiOutlineEyeSlash } from 'react-icons/hi2';
+import usePageTitle from '../hooks/usePageTitle';
+import AuthLayout, { PasswordInput } from '../components/layout/AuthLayout';
+import { Field, Input } from '../components/ui/Form';
+import Button from '../components/ui/Button';
+import { apiError } from '../utils/browser';
 
 const Signup = () => {
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
+  usePageTitle('Create account');
+  const [form, setForm] = useState({ name: '', email: '', password: '', confirm: '' });
+  const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
   const { signup } = useAuth();
   const navigate = useNavigate();
 
+  const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!name || !email || !password) {
-      toast.error('Please fill in all fields');
-      return;
-    }
-    if (password.length < 6) {
-      toast.error('Password must be at least 6 characters');
-      return;
-    }
-    if (password !== confirmPassword) {
-      toast.error('Passwords do not match');
-      return;
-    }
+    const next = {};
+    if (form.name.trim().length < 2) next.name = 'Enter at least 2 characters.';
+    if (!/^\S+@\S+\.\S+$/.test(form.email.trim())) next.email = 'Enter a valid email address.';
+    if (form.password.length < 6) next.password = 'Use at least 6 characters.';
+    if (form.confirm !== form.password) next.confirm = 'Passwords do not match.';
+    setErrors(next);
+    if (Object.keys(next).length) return;
+
     setLoading(true);
     try {
-      await signup(name, email, password);
+      await signup(form.name.trim(), form.email.trim(), form.password);
       navigate('/');
     } catch (error) {
-      toast.error(error.response?.data?.message || 'Signup failed');
+      setErrors({ form: apiError(error, 'Could not create the account. Try again.') });
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 bg-dark-900">
-      {/* Background decoration */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-1/3 right-1/4 w-96 h-96 bg-neon-purple/5 rounded-full blur-3xl" />
-        <div className="absolute bottom-1/3 left-1/4 w-96 h-96 bg-accent-500/5 rounded-full blur-3xl" />
-      </div>
-
-      <div className="w-full max-w-md animate-slide-up relative">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold gradient-text mb-2">AttendTrack</h1>
-          <p className="text-dark-400">Create your coach account</p>
-        </div>
-
-        {/* Form */}
-        <div className="glass-card p-6 md:p-8">
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Name */}
-            <div>
-              <label className="block text-sm font-medium text-dark-300 mb-2">Full Name</label>
-              <div className="relative">
-                <HiOutlineUser className="absolute left-4 top-1/2 -translate-y-1/2 text-dark-400 w-5 h-5" />
-                <input
-                  id="signup-name"
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Coach Ahmed"
-                  className="w-full pl-12"
-                />
-              </div>
-            </div>
-
-            {/* Email */}
-            <div>
-              <label className="block text-sm font-medium text-dark-300 mb-2">Email</label>
-              <div className="relative">
-                <HiOutlineEnvelope className="absolute left-4 top-1/2 -translate-y-1/2 text-dark-400 w-5 h-5" />
-                <input
-                  id="signup-email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="coach@example.com"
-                  className="w-full pl-12"
-                  autoComplete="email"
-                />
-              </div>
-            </div>
-
-            {/* Password */}
-            <div>
-              <label className="block text-sm font-medium text-dark-300 mb-2">Password</label>
-              <div className="relative">
-                <HiOutlineLockClosed className="absolute left-4 top-1/2 -translate-y-1/2 text-dark-400 w-5 h-5" />
-                <input
-                  id="signup-password"
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Min 6 characters"
-                  className="w-full pl-12 pr-12"
-                  autoComplete="new-password"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-dark-400 hover:text-white"
-                >
-                  {showPassword ? <HiOutlineEyeSlash className="w-5 h-5" /> : <HiOutlineEye className="w-5 h-5" />}
-                </button>
-              </div>
-            </div>
-
-            {/* Confirm Password */}
-            <div>
-              <label className="block text-sm font-medium text-dark-300 mb-2">Confirm Password</label>
-              <div className="relative">
-                <HiOutlineLockClosed className="absolute left-4 top-1/2 -translate-y-1/2 text-dark-400 w-5 h-5" />
-                <input
-                  id="signup-confirm-password"
-                  type={showPassword ? 'text' : 'password'}
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="Confirm your password"
-                  className="w-full pl-12"
-                  autoComplete="new-password"
-                />
-              </div>
-            </div>
-
-            {/* Submit */}
-            <button
-              type="submit"
-              disabled={loading}
-              className="btn-primary w-full"
-            >
-              {loading ? (
-                <span className="flex items-center justify-center gap-2">
-                  <svg className="animate-spin w-5 h-5" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                  </svg>
-                  Creating account...
-                </span>
-              ) : 'Create Account'}
-            </button>
-          </form>
-
-          {/* Footer */}
-          <p className="text-center text-dark-400 text-sm mt-6">
-            Already have an account?{' '}
-            <Link to="/login" className="text-accent-400 hover:text-accent-300 font-medium">
-              Sign In
-            </Link>
-          </p>
-        </div>
-      </div>
-    </div>
+    <AuthLayout
+      title="Create your coach account"
+      subtitle="Set up your roster and start tracking in a few minutes."
+      footer={<>Already have an account? <Link to="/login" className="font-medium text-accent hover:underline">Sign in</Link></>}
+    >
+      <form onSubmit={handleSubmit} className="flex flex-col gap-5" noValidate>
+        <Field label="Full name" htmlFor="signup-name" error={errors.name}>
+          <Input id="signup-name" value={form.name} onChange={set('name')} autoComplete="name" aria-invalid={!!errors.name} autoFocus />
+        </Field>
+        <Field label="Email" htmlFor="signup-email" error={errors.email}>
+          <Input id="signup-email" type="email" inputMode="email" value={form.email} onChange={set('email')} autoComplete="email" aria-invalid={!!errors.email} />
+        </Field>
+        <Field label="Password" htmlFor="signup-password" error={errors.password} hint="At least 6 characters.">
+          <PasswordInput id="signup-password" value={form.password} onChange={set('password')} autoComplete="new-password" aria-invalid={!!errors.password} />
+        </Field>
+        <Field label="Confirm password" htmlFor="signup-confirm" error={errors.confirm}>
+          <PasswordInput id="signup-confirm" value={form.confirm} onChange={set('confirm')} autoComplete="new-password" aria-invalid={!!errors.confirm} />
+        </Field>
+        {errors.form && <p role="alert" className="rounded-md bg-danger/10 px-3.5 py-2.5 text-[14px] text-danger">{errors.form}</p>}
+        <Button type="submit" size="lg" loading={loading} className="mt-1 w-full">
+          {loading ? 'Creating account' : 'Create account'}
+        </Button>
+      </form>
+    </AuthLayout>
   );
 };
 

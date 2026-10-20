@@ -16,14 +16,27 @@ const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 // Attach present/total counts to a list of sessions with one aggregate query.
 const withCounts = async (sessions) => {
   if (sessions.length === 0) return [];
-  const counts = await Attendance.aggregate([
-    { $match: { session: { $in: sessions.map((s) => s._id) } } },
-    { $group: { _id: '$session', total: { $sum: 1 }, present: { $sum: { $cond: ['$present', 1, 0] } } } }
-  ]);
-  const byId = new Map(counts.map((c) => [c._id.toString(), c]));
+  const records = await Attendance.find({ session: { $in: sessions.map((s) => s._id) } }).select('session athlete present');
+  const bySession = new Map();
+  records.forEach((r) => {
+    const key = r.session.toString();
+    if (!bySession.has(key)) bySession.set(key, []);
+    bySession.get(key).push(r);
+  });
+  // presentCount/totalCount cover expected athletes (everyone when there is no roster);
+  // extraCount is athletes marked present who were not on the roster.
   return sessions.map((session) => {
-    const c = byId.get(session._id.toString());
-    return { ...session.toObject(), presentCount: c?.present || 0, totalCount: c?.total || 0 };
+    const roster = new Set((session.assignedAthletes || []).map(String));
+    const list = bySession.get(session._id.toString()) || [];
+    const expected = roster.size ? list.filter((r) => roster.has(r.athlete.toString())) : list;
+    const extras = roster.size ? list.filter((r) => !roster.has(r.athlete.toString()) && r.present) : [];
+    return {
+      ...session.toObject(),
+      presentCount: expected.filter((r) => r.present).length,
+      totalCount: expected.length,
+      extraCount: extras.length,
+      recordCount: list.length
+    };
   });
 };
 
@@ -48,6 +61,14 @@ router.get('/', async (req, res) => {
 
     const sessions = await Session.find(query).sort({ date: -1, createdAt: -1 });
     const result = await withCounts(sessions);
+
+    // Sessions generated before `time` existed: show the template's time.
+    const missing = [...new Set(result.filter((s) => !s.time && s.scheduleId).map((s) => s.scheduleId.toString()))];
+    if (missing.length) {
+      const schedules = await Schedule.find({ _id: { $in: missing }, coach: req.user._id }).select('time');
+      const times = new Map(schedules.map((s) => [s._id.toString(), s.time]));
+      result.forEach((s) => { if (!s.time && s.scheduleId) s.time = times.get(s.scheduleId.toString()) || null; });
+    }
     if (date) result.sort(sortByTime);
     res.json(result);
   } catch (error) {
@@ -88,7 +109,12 @@ router.get('/:id', async (req, res) => {
   try {
     const session = await Session.findOne({ _id: req.params.id, coach: req.user._id });
     if (!session) return res.status(404).json({ message: 'Session not found.' });
-    res.json(session);
+    const body = session.toObject();
+    if (!body.time && body.scheduleId) {
+      const schedule = await Schedule.findOne({ _id: body.scheduleId, coach: req.user._id }).select('time');
+      body.time = schedule?.time || null;
+    }
+    res.json(body);
   } catch (error) {
     res.status(500).json({ message: error.message || 'Error fetching session.' });
   }

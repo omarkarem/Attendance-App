@@ -1,9 +1,13 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, Outlet, Link } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider } from './context/AuthContext';
 import useAuth from './hooks/useAuth';
-import Navbar from './components/Navbar';
+import AppShell, { Wordmark } from './components/layout/AppShell';
+import { ConfirmProvider } from './components/ui/ConfirmProvider';
+import { EmptyState } from './components/ui/Display';
+import Button from './components/ui/Button';
+import usePageTitle from './hooks/usePageTitle';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
 import Dashboard from './pages/Dashboard';
@@ -15,111 +19,37 @@ import Export from './pages/Export';
 import Tests from './pages/Tests';
 import TestResults from './pages/TestResults';
 import AthleteProfile from './pages/AthleteProfile';
+import { PiCompass } from 'react-icons/pi';
 
-// Protected Route wrapper
-const ProtectedRoute = ({ children }) => {
+const BootScreen = () => (
+  <div className="flex min-h-[100dvh] items-center justify-center bg-canvas" role="status" aria-label="Loading">
+    <Wordmark className="animate-pulse" />
+  </div>
+);
+
+const ProtectedLayout = () => {
   const { isAuthenticated, loading } = useAuth();
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-dark-900">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-12 h-12 border-3 border-accent-400 border-t-transparent rounded-full animate-spin" />
-          <p className="text-dark-400 text-sm">Loading...</p>
-        </div>
-      </div>
-    );
-  }
-
-  return isAuthenticated ? children : <Navigate to="/login" replace />;
+  if (loading) return <BootScreen />;
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  return <AppShell><Outlet /></AppShell>;
 };
 
-// Public Route wrapper (redirect to home if already logged in)
-const PublicRoute = ({ children }) => {
+const PublicOnly = () => {
   const { isAuthenticated, loading } = useAuth();
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-dark-900">
-        <div className="w-12 h-12 border-3 border-accent-400 border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
-  }
-
-  return isAuthenticated ? <Navigate to="/" replace /> : children;
+  if (loading) return <BootScreen />;
+  return isAuthenticated ? <Navigate to="/" replace /> : <Outlet />;
 };
 
-// Layout with Navbar
-const AppLayout = ({ children }) => {
+const NotFound = () => {
+  usePageTitle('Page not found');
   return (
-    <div className="min-h-screen bg-dark-900">
-      <Navbar />
-      <main>{children}</main>
-    </div>
-  );
-};
-
-const AppRoutes = () => {
-  return (
-    <Routes>
-      {/* Public Routes */}
-      <Route path="/login" element={
-        <PublicRoute><Login /></PublicRoute>
-      } />
-      <Route path="/signup" element={
-        <PublicRoute><Signup /></PublicRoute>
-      } />
-
-      {/* Protected Routes */}
-      <Route path="/" element={
-        <ProtectedRoute>
-          <AppLayout><Dashboard /></AppLayout>
-        </ProtectedRoute>
-      } />
-      <Route path="/sessions" element={
-        <ProtectedRoute>
-          <AppLayout><Sessions /></AppLayout>
-        </ProtectedRoute>
-      } />
-      <Route path="/checkin/:sessionId" element={
-        <ProtectedRoute>
-          <AppLayout><CheckIn /></AppLayout>
-        </ProtectedRoute>
-      } />
-      <Route path="/athletes" element={
-        <ProtectedRoute>
-          <AppLayout><Athletes /></AppLayout>
-        </ProtectedRoute>
-      } />
-      <Route path="/athlete/:id" element={
-        <ProtectedRoute>
-          <AppLayout><AthleteProfile /></AppLayout>
-        </ProtectedRoute>
-      } />
-      <Route path="/tests" element={
-        <ProtectedRoute>
-          <AppLayout><Tests /></AppLayout>
-        </ProtectedRoute>
-      } />
-      <Route path="/test-results" element={
-        <ProtectedRoute>
-          <AppLayout><TestResults /></AppLayout>
-        </ProtectedRoute>
-      } />
-      <Route path="/attendance" element={
-        <ProtectedRoute>
-          <AppLayout><AttendanceGrid /></AppLayout>
-        </ProtectedRoute>
-      } />
-      <Route path="/export" element={
-        <ProtectedRoute>
-          <AppLayout><Export /></AppLayout>
-        </ProtectedRoute>
-      } />
-
-      {/* Catch-all redirect */}
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    <EmptyState
+      icon={PiCompass}
+      title="Page not found"
+      body="That link does not point to anything in AttendTrack."
+      action={<Link to="/"><Button>Back to Today</Button></Link>}
+      className="py-24"
+    />
   );
 };
 
@@ -127,33 +57,44 @@ function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <Toaster
-          position="top-center"
-          toastOptions={{
-            duration: 3000,
-            style: {
-              background: '#1e1e3a',
-              color: '#fff',
-              border: '1px solid rgba(90, 90, 132, 0.5)',
-              borderRadius: '12px',
-              backdropFilter: 'blur(10px)',
-              fontSize: '14px'
-            },
-            success: {
-              iconTheme: {
-                primary: '#10b981',
-                secondary: '#fff',
+        <ConfirmProvider>
+          <Toaster
+            position="top-center"
+            containerStyle={{ top: 'calc(16px + env(safe-area-inset-top))', zIndex: 70 }}
+            toastOptions={{
+              duration: 3000,
+              style: {
+                background: '#1c1c1c',
+                color: '#ffffff',
+                border: '1px solid #262626',
+                borderRadius: '100px',
+                padding: '8px 14px',
+                fontSize: '14px',
+                boxShadow: '0 10px 30px rgba(0,0,0,0.45)'
               },
-            },
-            error: {
-              iconTheme: {
-                primary: '#ef4444',
-                secondary: '#fff',
-              },
-            },
-          }}
-        />
-        <AppRoutes />
+              success: { iconTheme: { primary: '#22c55e', secondary: '#090909' } },
+              error: { iconTheme: { primary: '#ff5577', secondary: '#090909' }, duration: 4500 }
+            }}
+          />
+          <Routes>
+            <Route element={<PublicOnly />}>
+              <Route path="/login" element={<Login />} />
+              <Route path="/signup" element={<Signup />} />
+            </Route>
+            <Route element={<ProtectedLayout />}>
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/sessions" element={<Sessions />} />
+              <Route path="/checkin/:sessionId" element={<CheckIn />} />
+              <Route path="/athletes" element={<Athletes />} />
+              <Route path="/athlete/:id" element={<AthleteProfile />} />
+              <Route path="/tests" element={<Tests />} />
+              <Route path="/test-results" element={<TestResults />} />
+              <Route path="/attendance" element={<AttendanceGrid />} />
+              <Route path="/export" element={<Export />} />
+              <Route path="*" element={<NotFound />} />
+            </Route>
+          </Routes>
+        </ConfirmProvider>
       </AuthProvider>
     </BrowserRouter>
   );

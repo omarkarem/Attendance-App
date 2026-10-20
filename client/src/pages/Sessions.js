@@ -1,514 +1,504 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import api from '../utils/api';
-import Modal from '../components/Modal';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { addDays, format, isValid, parseISO } from 'date-fns';
 import toast from 'react-hot-toast';
-import { format } from 'date-fns';
 import {
-  HiOutlinePlus,
-  HiOutlineCalendar,
-  HiOutlineUserGroup,
-  HiOutlineTrash,
-  HiOutlineClipboardDocumentCheck,
-  HiOutlineChevronLeft,
-  HiOutlineChevronRight,
-  HiOutlineArrowPath
-} from 'react-icons/hi2';
+  PiPlus, PiRepeat, PiCalendarDots, PiPencilSimple, PiUsersThree, PiTrash, PiPause, PiPlay, PiWarningCircle, PiClock
+} from 'react-icons/pi';
+import api from '../utils/api';
+import usePageTitle from '../hooks/usePageTitle';
+import { apiError } from '../utils/browser';
+import { Card, PageHeader, Badge, EmptyState, Skeleton, WeekDots, DAY_NAMES } from '../components/ui/Display';
+import Button from '../components/ui/Button';
+import Menu from '../components/ui/Menu';
+import Dialog from '../components/ui/Dialog';
+import { Field, Input } from '../components/ui/Form';
+import { Segmented } from '../components/ui/Segmented';
+import { useConfirm } from '../components/ui/ConfirmProvider';
+import DateStepper from '../components/DateStepper';
+import AssignAthletesDialog from '../components/AssignAthletesDialog';
+import cx from '../utils/cx';
+import { presentLabel, rosterLabel } from '../utils/sessions';
 
-const DAYS_OF_WEEK = [
-  { id: 0, label: 'Sun', full: 'Sunday' },
-  { id: 1, label: 'Mon', full: 'Monday' },
-  { id: 2, label: 'Tue', full: 'Tuesday' },
-  { id: 3, label: 'Wed', full: 'Wednesday' },
-  { id: 4, label: 'Thu', full: 'Thursday' },
-  { id: 5, label: 'Fri', full: 'Friday' },
-  { id: 6, label: 'Sat', full: 'Saturday' }
-];
+const todayKey = () => format(new Date(), 'yyyy-MM-dd');
+const keyToDate = (key) => parseISO(`${key}T12:00:00`);
+const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-const Sessions = () => {
-  const [activeTab, setActiveTab] = useState('daily'); // 'daily' or 'schedules'
-  
-  // Daily Sessions State
-  const [sessions, setSessions] = useState([]);
-  const [selectedDate, setSelectedDate] = useState(new Date());
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [sessionName, setSessionName] = useState('');
-  
-  // Schedules State
-  const [schedules, setSchedules] = useState([]);
-  const [showScheduleModal, setShowScheduleModal] = useState(false);
-  const [scheduleName, setScheduleName] = useState('');
-  const [scheduleDays, setScheduleDays] = useState([]);
-  const [scheduleTime, setScheduleTime] = useState('12:00');
-  
-  const [loading, setLoading] = useState(true);
-  const [creating, setCreating] = useState(false);
 
-  // Athletes Assignment State
-  const [athletes, setAthletes] = useState([]);
-  const [showAssignModal, setShowAssignModal] = useState(false);
-  const [selectedEntity, setSelectedEntity] = useState(null);
-  const [entityType, setEntityType] = useState('session');
-  const [assignedAthletes, setAssignedAthletes] = useState([]);
-  const [savingAthletes, setSavingAthletes] = useState(false);
+// ---------- Forms ----------
 
-  const navigate = useNavigate();
+const SessionDialog = ({ open, onClose, session, dayKey, onSaved }) => {
+  const [name, setName] = useState('');
+  const [time, setTime] = useState('');
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (activeTab === 'daily') {
-      fetchSessions();
-    } else {
-      fetchSchedules();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDate, activeTab]);
+    if (!open) return;
+    setName(session?.name || '');
+    setTime(session?.time || '');
+    setError('');
+  }, [open, session]);
 
-  const fetchSessions = async () => {
-    setLoading(true);
-    try {
-      const dateStr = format(selectedDate, 'yyyy-MM-dd');
-      const { data } = await api.get(`/sessions?date=${dateStr}`);
-      setSessions(data);
-    } catch (error) {
-      toast.error('Failed to load sessions');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchSchedules = async () => {
-    setLoading(true);
-    try {
-      const { data } = await api.get('/schedules');
-      setSchedules(data);
-    } catch (error) {
-      toast.error('Failed to load schedules');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchAthletes = async () => {
-    try {
-      const { data } = await api.get('/athletes');
-      setAthletes(data);
-    } catch (error) {
-      toast.error('Failed to load athletes');
-    }
-  };
-
-  const createSession = async (e) => {
+  const submit = async (e) => {
     e.preventDefault();
-    if (!sessionName.trim()) {
-      toast.error('Please enter a session name');
-      return;
-    }
-    setCreating(true);
+    if (!name.trim()) { setError('Give the session a name.'); return; }
+    setSaving(true);
     try {
-      const { data } = await api.post('/sessions', {
-        name: sessionName.trim(),
-        date: format(selectedDate, 'yyyy-MM-dd')
-      });
-      setSessions([data, ...sessions]);
-      setShowCreateModal(false);
-      setSessionName('');
-    } catch (error) {
-      toast.error(error.response?.data?.message || 'Failed to create session');
+      const { data } = session
+        ? await api.put(`/sessions/${session._id}`, { name: name.trim(), time: time || null })
+        : await api.post('/sessions', { name: name.trim(), date: dayKey, time: time || null });
+      onSaved(data, !session);
+      onClose();
+    } catch (err) {
+      setError(apiError(err, 'Could not save the session.'));
     } finally {
-      setCreating(false);
+      setSaving(false);
     }
   };
-
-  const createSchedule = async (e) => {
-    e.preventDefault();
-    if (!scheduleName.trim() || scheduleDays.length === 0) {
-      toast.error('Please enter a name and select at least one day');
-      return;
-    }
-    setCreating(true);
-    try {
-      const { data } = await api.post('/schedules', {
-        name: scheduleName.trim(),
-        daysOfWeek: scheduleDays,
-        time: scheduleTime
-      });
-      setSchedules([data, ...schedules]);
-      setShowScheduleModal(false);
-      setScheduleName('');
-      setScheduleDays([]);
-    } catch (error) {
-      toast.error(error.response?.data?.message || 'Failed to create schedule');
-    } finally {
-      setCreating(false);
-    }
-  };
-
-  const deleteSession = async (id) => {
-    try {
-      await api.delete(`/sessions/${id}`);
-      setSessions(sessions.filter(s => s._id !== id));
-      setSessions(sessions.filter(s => s._id !== id));
-    } catch (error) {
-      toast.error('Failed to delete session');
-    }
-  };
-
-  const deleteSchedule = async (id) => {
-    try {
-      await api.delete(`/schedules/${id}`);
-      setSchedules(schedules.filter(s => s._id !== id));
-      setSchedules(schedules.filter(s => s._id !== id));
-    } catch (error) {
-      toast.error('Failed to delete schedule');
-    }
-  };
-
-  const openAssignModal = (entity, type) => {
-    setSelectedEntity(entity);
-    setEntityType(type);
-    setAssignedAthletes(entity.assignedAthletes || []);
-    setShowAssignModal(true);
-    if (athletes.length === 0) fetchAthletes();
-  };
-
-  const saveAssignedAthletes = async (e) => {
-    e.preventDefault();
-    setSavingAthletes(true);
-    try {
-      const endpoint = entityType === 'session' ? `/sessions/${selectedEntity._id}` : `/schedules/${selectedEntity._id}`;
-      const { data } = await api.put(endpoint, {
-        assignedAthletes
-      });
-      
-      if (entityType === 'session') {
-        setSessions(sessions.map(s => s._id === data._id ? { ...s, assignedAthletes: data.assignedAthletes } : s));
-      } else {
-        setSchedules(schedules.map(s => s._id === data._id ? { ...s, assignedAthletes: data.assignedAthletes } : s));
-      }
-      
-      setShowAssignModal(false);
-      toast.success('Athletes assigned successfully');
-    } catch (error) {
-      toast.error('Failed to save assigned athletes');
-    } finally {
-      setSavingAthletes(false);
-    }
-  };
-
-  const toggleAssignedAthlete = (athleteId) => {
-    if (assignedAthletes.includes(athleteId)) {
-      setAssignedAthletes(assignedAthletes.filter(id => id !== athleteId));
-    } else {
-      setAssignedAthletes([...assignedAthletes, athleteId]);
-    }
-  };
-
-  const toggleDay = (dayId) => {
-    if (scheduleDays.includes(dayId)) {
-      setScheduleDays(scheduleDays.filter(id => id !== dayId));
-    } else {
-      setScheduleDays([...scheduleDays, dayId]);
-    }
-  };
-
-  const changeDate = (days) => {
-    const newDate = new Date(selectedDate);
-    newDate.setDate(newDate.getDate() + days);
-    setSelectedDate(newDate);
-  };
-
-  const isToday = format(selectedDate, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd');
 
   return (
-    <div className="page-container">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-        <h1 className="page-title !mb-0">Sessions</h1>
-        
-        {/* Tab Navigation */}
-        <div className="flex bg-dark-800 p-1 rounded-xl">
-          <button
-            onClick={() => setActiveTab('daily')}
-            className={`flex-1 md:w-32 py-2 text-sm font-medium rounded-lg transition-all ${
-              activeTab === 'daily' ? 'bg-dark-600 text-white shadow' : 'text-dark-400 hover:text-white'
-            }`}
-          >
-            Daily Log
-          </button>
-          <button
-            onClick={() => setActiveTab('schedules')}
-            className={`flex-1 md:w-32 py-2 text-sm font-medium rounded-lg transition-all ${
-              activeTab === 'schedules' ? 'bg-dark-600 text-white shadow' : 'text-dark-400 hover:text-white'
-            }`}
-          >
-            Templates
-          </button>
-        </div>
-
-        {activeTab === 'daily' ? (
-          <button onClick={() => setShowCreateModal(true)} className="btn-primary flex items-center justify-center gap-2 text-sm">
-            <HiOutlinePlus className="w-4 h-4" />
-            <span>New Session</span>
-          </button>
-        ) : (
-          <button onClick={() => setShowScheduleModal(true)} className="btn-primary flex items-center justify-center gap-2 text-sm">
-            <HiOutlineArrowPath className="w-4 h-4" />
-            <span>New Template</span>
-          </button>
-        )}
-      </div>
-
-      {activeTab === 'daily' && (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title={session ? 'Edit session' : 'New session'}
+      description={session ? undefined : `One-off session on ${format(keyToDate(dayKey), 'EEEE, MMMM d')}.`}
+      footer={(
         <>
-          {/* Date Selector */}
-          <div className="glass-card p-3 mb-6 flex items-center justify-between">
-            <button onClick={() => changeDate(-1)} className="w-10 h-10 rounded-xl flex items-center justify-center text-dark-400 hover:text-white hover:bg-dark-600 transition-all">
-              <HiOutlineChevronLeft className="w-5 h-5" />
-            </button>
-            <div className="text-center">
-              <p className="text-sm font-semibold text-white">
-                {isToday ? 'Today' : format(selectedDate, 'EEEE')}
-              </p>
-              <p className="text-xs text-dark-400">
-                {format(selectedDate, 'MMM d, yyyy')}
-              </p>
-            </div>
-            <button onClick={() => changeDate(1)} className="w-10 h-10 rounded-xl flex items-center justify-center text-dark-400 hover:text-white hover:bg-dark-600 transition-all">
-              <HiOutlineChevronRight className="w-5 h-5" />
-            </button>
-          </div>
-
-          {/* Sessions List */}
-          {loading ? (
-            <div className="flex items-center justify-center h-32">
-              <div className="w-8 h-8 border-2 border-accent-400 border-t-transparent rounded-full animate-spin" />
-            </div>
-          ) : sessions.length > 0 ? (
-            <div className="space-y-4">
-              {sessions.map((session, index) => (
-                <div key={session._id} className="glass-card-hover p-4 animate-slide-up" style={{ animationDelay: `${index * 50}ms` }}>
-                  <div className="flex items-center justify-between">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <HiOutlineCalendar className="w-4 h-4 text-accent-400 flex-shrink-0" />
-                        <h3 className="font-semibold text-white truncate">{session.name}</h3>
-                      </div>
-                      <div className="flex items-center gap-3 text-xs text-dark-400">
-                        <span className="flex items-center gap-1">
-                          <HiOutlineUserGroup className="w-3.5 h-3.5" />
-                          {session.presentCount || 0}/{session.totalCount || 0} present
-                        </span>
-                        {session.scheduleId && (
-                          <span className="flex items-center gap-1 text-accent-400/80">
-                            <HiOutlineArrowPath className="w-3.5 h-3.5" />
-                            Auto-generated
-                          </span>
-                        )}
-                        <span>{format(new Date(session.date), 'h:mm a')}</span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 ml-3">
-                      <button onClick={() => openAssignModal(session, 'session')} className="btn-secondary !px-3 !py-2 text-sm flex items-center gap-1.5" title="Manage Athletes">
-                        <HiOutlineUserGroup className="w-4 h-4" />
-                      </button>
-                      <button onClick={() => navigate(`/checkin/${session._id}`)} className="btn-primary !px-4 !py-2 text-sm flex items-center gap-1.5">
-                        <HiOutlineClipboardDocumentCheck className="w-4 h-4" />
-                        <span className="hidden sm:inline">Check In</span>
-                      </button>
-                      <button onClick={() => deleteSession(session._id)} className="w-9 h-9 flex items-center justify-center rounded-xl text-dark-400 hover:text-red-400 hover:bg-red-500/10 transition-all">
-                        <HiOutlineTrash className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="glass-card p-8 text-center animate-fade-in">
-              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-dark-700 flex items-center justify-center">
-                <HiOutlineCalendar className="w-8 h-8 text-dark-400" />
-              </div>
-              <h3 className="text-lg font-semibold mb-2">No sessions</h3>
-              <p className="text-dark-400 mb-4">
-                {isToday ? "No sessions generated or created for today" : "No sessions on this day"}
-              </p>
-              <button onClick={() => setShowCreateModal(true)} className="btn-primary">
-                <HiOutlinePlus className="w-4 h-4 inline mr-2" />
-                Create Manual Session
-              </button>
-            </div>
-          )}
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="submit" form="session-form" loading={saving}>{session ? 'Save changes' : 'Create session'}</Button>
         </>
       )}
+    >
+      <form id="session-form" onSubmit={submit} className="flex flex-col gap-5" noValidate>
+        <Field label="Name" htmlFor="session-name" error={error}>
+          <Input id="session-name" value={name} onChange={(e) => { setName(e.target.value); setError(''); }} placeholder="Make-up swim" maxLength={100} aria-invalid={!!error} data-autofocus />
+        </Field>
+        <Field label="Start time" htmlFor="session-time" hint="Optional.">
+          <Input id="session-time" type="time" value={time} onChange={(e) => setTime(e.target.value)} />
+        </Field>
+      </form>
+    </Dialog>
+  );
+};
 
-      {activeTab === 'schedules' && (
+const TemplateDialog = ({ open, onClose, template, onSaved }) => {
+  const [name, setName] = useState('');
+  const [time, setTime] = useState('');
+  const [days, setDays] = useState([]);
+  const [errors, setErrors] = useState({});
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setName(template?.name || '');
+    setTime(template?.time || '');
+    setDays(template?.daysOfWeek || []);
+    setErrors({});
+  }, [open, template]);
+
+  const toggleDay = (d) => {
+    setDays((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d].sort()));
+    setErrors((x) => ({ ...x, days: undefined }));
+  };
+
+  const submit = async (e) => {
+    e.preventDefault();
+    const next = {};
+    if (!name.trim()) next.name = 'Give the template a name.';
+    if (days.length === 0) next.days = 'Pick at least one day.';
+    setErrors(next);
+    if (Object.keys(next).length) return;
+    setSaving(true);
+    try {
+      const body = { name: name.trim(), daysOfWeek: days, time: time || null };
+      const { data } = template ? await api.put(`/schedules/${template._id}`, body) : await api.post('/schedules', body);
+      onSaved(data, !template);
+      onClose();
+    } catch (err) {
+      setErrors({ form: apiError(err, 'Could not save the template.') });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title={template ? 'Edit template' : 'New recurring template'}
+      description="A session is created automatically on every selected day."
+      footer={(
         <>
-          {loading ? (
-            <div className="flex items-center justify-center h-32">
-              <div className="w-8 h-8 border-2 border-accent-400 border-t-transparent rounded-full animate-spin" />
-            </div>
-          ) : schedules.length > 0 ? (
-            <div className="space-y-4">
-              {schedules.map((schedule, index) => (
-                <div key={schedule._id} className="glass-card p-5 animate-slide-up" style={{ animationDelay: `${index * 50}ms` }}>
-                  <div className="flex items-start justify-between mb-4">
-                    <div>
-                      <h3 className="font-semibold text-lg text-white mb-1">{schedule.name}</h3>
-                      <p className="text-xs text-dark-400 flex items-center gap-1">
-                        <HiOutlineArrowPath className="w-3.5 h-3.5" />
-                        Auto-generates at {schedule.time || '12:00'}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button onClick={() => openAssignModal(schedule, 'schedule')} className="w-8 h-8 flex items-center justify-center rounded-lg text-dark-400 hover:text-accent-400 hover:bg-accent-500/10 transition-all" title="Manage Athletes">
-                        <HiOutlineUserGroup className="w-4 h-4" />
-                      </button>
-                      <button onClick={() => deleteSchedule(schedule._id)} className="w-8 h-8 flex items-center justify-center rounded-lg text-dark-400 hover:text-red-400 hover:bg-red-500/10 transition-all">
-                        <HiOutlineTrash className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {DAYS_OF_WEEK.map(day => (
-                      <span key={day.id} className={`text-xs px-2.5 py-1 rounded-md font-medium ${
-                        schedule.daysOfWeek.includes(day.id) 
-                          ? 'bg-accent-500/20 text-accent-400 border border-accent-500/30' 
-                          : 'bg-dark-700/50 text-dark-500 border border-dark-600'
-                      }`}>
-                        {day.label}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="glass-card p-8 text-center animate-fade-in">
-              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-dark-700 flex items-center justify-center">
-                <HiOutlineArrowPath className="w-8 h-8 text-dark-400" />
-              </div>
-              <h3 className="text-lg font-semibold mb-2">No Templates</h3>
-              <p className="text-dark-400 mb-4 max-w-sm mx-auto">
-                Create a recurring template to automatically generate sessions on specific days of the week.
-              </p>
-              <button onClick={() => setShowScheduleModal(true)} className="btn-primary">
-                <HiOutlinePlus className="w-4 h-4 inline mr-2" />
-                Create Template
-              </button>
-            </div>
-          )}
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="submit" form="template-form" loading={saving}>{template ? 'Save changes' : 'Create template'}</Button>
         </>
       )}
-
-      {/* Create Manual Session Modal */}
-      <Modal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} title="New Manual Session">
-        <form onSubmit={createSession} className="space-y-5">
-          <div>
-            <label className="block text-sm font-medium text-dark-300 mb-2">Session Name</label>
-            <input id="session-name" type="text" value={sessionName} onChange={(e) => setSessionName(e.target.value)} placeholder="e.g., Make-up class" className="w-full" autoFocus />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-dark-300 mb-2">Date</label>
-            <div className="glass-card px-4 py-3 text-sm text-dark-300">
-              {format(selectedDate, 'EEEE, MMMM d, yyyy')}
-            </div>
-          </div>
-          <div className="flex gap-3 pt-2">
-            <button type="button" onClick={() => setShowCreateModal(false)} className="btn-secondary flex-1">Cancel</button>
-            <button type="submit" disabled={creating} className="btn-primary flex-1">{creating ? 'Creating...' : 'Create'}</button>
-          </div>
-        </form>
-      </Modal>
-
-      {/* Create Schedule Modal */}
-      <Modal isOpen={showScheduleModal} onClose={() => setShowScheduleModal(false)} title="New Recurring Template">
-        <form onSubmit={createSchedule} className="space-y-5">
-          <div>
-            <label className="block text-sm font-medium text-dark-300 mb-2">Template Name</label>
-            <input id="schedule-name" type="text" value={scheduleName} onChange={(e) => setScheduleName(e.target.value)} placeholder="e.g., Swim Session" className="w-full" autoFocus />
-          </div>
-          
-          <div>
-            <label className="block text-sm font-medium text-dark-300 mb-2">Time (Optional)</label>
-            <input id="schedule-time" type="time" value={scheduleTime} onChange={(e) => setScheduleTime(e.target.value)} className="w-full" />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-dark-300 mb-2">Repeats On</label>
-            <div className="grid grid-cols-4 gap-2">
-              {DAYS_OF_WEEK.map(day => (
+    >
+      <form id="template-form" onSubmit={submit} className="flex flex-col gap-5" noValidate>
+        <Field label="Name" htmlFor="template-name" error={errors.name}>
+          <Input id="template-name" value={name} onChange={(e) => { setName(e.target.value); setErrors((x) => ({ ...x, name: undefined })); }} placeholder="Morning swim" maxLength={100} aria-invalid={!!errors.name} data-autofocus />
+        </Field>
+        <Field label="Repeats on" error={errors.days}>
+          <div className="grid grid-cols-7 gap-1.5" role="group" aria-label="Repeats on">
+            {DAY_SHORT.map((label, d) => {
+              const on = days.includes(d);
+              return (
                 <button
-                  key={day.id}
+                  key={label}
                   type="button"
-                  onClick={() => toggleDay(day.id)}
-                  className={`py-2 text-xs font-medium rounded-lg border transition-all ${
-                    scheduleDays.includes(day.id)
-                      ? 'bg-accent-500/20 border-accent-500/50 text-accent-400 shadow-glow'
-                      : 'bg-dark-700/50 border-dark-600 text-dark-400 hover:bg-dark-600'
-                  }`}
+                  aria-pressed={on}
+                  aria-label={DAY_NAMES[d]}
+                  onClick={() => toggleDay(d)}
+                  className={cx('h-11 rounded-pill text-[13px] font-semibold transition-colors', on ? 'bg-ink text-canvas' : 'bg-surface-2 text-muted hover:text-ink')}
                 >
-                  {day.label}
+                  {label}
                 </button>
-              ))}
-            </div>
+              );
+            })}
           </div>
+        </Field>
+        <Field label="Start time" htmlFor="template-time" hint="Optional. Shown on every generated session.">
+          <Input id="template-time" type="time" value={time} onChange={(e) => setTime(e.target.value)} />
+        </Field>
+        {template && <p className="text-[12px] text-muted">Changes apply to today and future sessions. Past sessions keep their history.</p>}
+        {errors.form && <p role="alert" className="text-[13px] text-danger">{errors.form}</p>}
+      </form>
+    </Dialog>
+  );
+};
 
-          <div className="flex gap-3 pt-2">
-            <button type="button" onClick={() => setShowScheduleModal(false)} className="btn-secondary flex-1">Cancel</button>
-            <button type="submit" disabled={creating} className="btn-primary flex-1">{creating ? 'Saving...' : 'Save Template'}</button>
+// ---------- Lists ----------
+
+const SessionRow = ({ session, onCheckIn, onEdit, onAssign, onDelete }) => {
+  const taken = session.recordCount > 0;
+  return (
+    <li className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:gap-5 sm:px-5">
+      <div className="flex min-w-0 flex-1 items-start gap-4">
+        <div className="w-14 shrink-0 pt-0.5">
+          <p className="text-[15px] font-semibold tabular-nums">{session.time || '-'}</p>
+          <p className="text-[11px] text-muted">{session.time ? 'start' : 'any time'}</p>
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="truncate text-[16px] font-semibold tracking-[-0.02em]">{session.name}</h3>
+            {session.scheduleId ? <Badge icon={PiRepeat}>Template</Badge> : <Badge>One-off</Badge>}
           </div>
-        </form>
-      </Modal>
-
-      {/* Assign Athletes Modal */}
-      <Modal isOpen={showAssignModal} onClose={() => setShowAssignModal(false)} title={`Assign Athletes to ${selectedEntity?.name || ''}`}>
-        <form onSubmit={saveAssignedAthletes} className="space-y-4">
-          <p className="text-xs text-dark-400">
-            {entityType === 'schedule' 
-              ? 'Athletes assigned here will be automatically expected for any future sessions generated from this template.'
-              : 'Select which athletes are expected to attend this specific session.'}
+          <p className="mt-1 text-[13px] text-muted">
+            {rosterLabel(session.assignedAthletes)}
+            <span aria-hidden="true"> · </span>
+            {taken ? <span className="text-ink">{presentLabel(session)}</span> : 'Not taken yet'}
           </p>
-          
-          <div className="max-h-64 overflow-y-auto pr-2 space-y-2">
-            {athletes.length === 0 ? (
-              <p className="text-sm text-dark-400 text-center py-4">No active athletes found.</p>
-            ) : (
-              athletes.map(athlete => (
-                <label key={athlete._id} className="flex items-center justify-between p-3 rounded-lg border border-dark-600 bg-dark-700/50 cursor-pointer hover:bg-dark-600 transition-all">
-                  <span className="text-sm font-medium text-white">{athlete.name}</span>
-                  <div className={`w-5 h-5 rounded border flex items-center justify-center transition-all ${
-                    assignedAthletes.includes(athlete._id) ? 'bg-accent-500 border-accent-500' : 'border-dark-400'
-                  }`}>
-                    {assignedAthletes.includes(athlete._id) && (
-                      <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                      </svg>
-                    )}
-                  </div>
-                  <input
-                    type="checkbox"
-                    className="hidden"
-                    checked={assignedAthletes.includes(athlete._id)}
-                    onChange={() => toggleAssignedAthlete(athlete._id)}
-                  />
-                </label>
-              ))
-            )}
-          </div>
+        </div>
+      </div>
+      <div className="flex items-center gap-1 pl-[72px] sm:pl-0">
+        <Button size="sm" variant={taken ? 'secondary' : 'primary'} onClick={onCheckIn} className="flex-1 sm:flex-none">
+          {taken ? 'Review attendance' : 'Take attendance'}
+        </Button>
+        <Menu
+          label={`Actions for ${session.name}`}
+          items={[
+            { label: 'Edit name or time', icon: PiPencilSimple, onSelect: onEdit },
+            { label: 'Choose athletes', icon: PiUsersThree, onSelect: onAssign },
+            { label: 'Delete session', icon: PiTrash, tone: 'danger', onSelect: onDelete }
+          ]}
+        />
+      </div>
+    </li>
+  );
+};
 
-          <div className="flex items-center justify-between pt-2">
-            <span className="text-sm text-dark-400">
-              <span className="text-white font-medium">{assignedAthletes.length}</span> selected
-            </span>
-            <div className="flex gap-2">
-              <button type="button" onClick={() => setShowAssignModal(false)} className="btn-secondary">Cancel</button>
-              <button type="submit" disabled={savingAthletes} className="btn-primary">
-                {savingAthletes ? 'Saving...' : 'Save'}
-              </button>
-            </div>
-          </div>
-        </form>
-      </Modal>
+const TemplateCard = ({ template, onEdit, onAssign, onToggle, onDelete }) => (
+  <Card as="li" className={cx('flex flex-col gap-4 p-5', !template.active && 'opacity-70')}>
+    <div className="flex items-start justify-between gap-3">
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <h3 className="truncate text-[17px] font-semibold tracking-[-0.02em]">{template.name}</h3>
+          {!template.active && <Badge>Paused</Badge>}
+        </div>
+        <p className="mt-1 flex items-center gap-1.5 text-[13px] text-muted">
+          <PiClock className="h-3.5 w-3.5" aria-hidden="true" />
+          {template.time || 'No set time'}
+          <span aria-hidden="true">·</span>
+          {rosterLabel(template.assignedAthletes)}
+        </p>
+      </div>
+      <Menu
+        label={`Actions for ${template.name}`}
+        items={[
+          { label: 'Edit template', icon: PiPencilSimple, onSelect: onEdit },
+          { label: 'Choose athletes', icon: PiUsersThree, onSelect: onAssign },
+          { label: template.active ? 'Pause' : 'Resume', icon: template.active ? PiPause : PiPlay, onSelect: onToggle },
+          { label: 'Delete template', icon: PiTrash, tone: 'danger', onSelect: onDelete }
+        ]}
+      />
     </div>
+    <WeekDots days={template.daysOfWeek} />
+  </Card>
+);
+
+const ListSkeleton = ({ rows = 3 }) => (
+  <Card className="divide-y divide-line-soft" aria-hidden="true">
+    {Array.from({ length: rows }).map((_, i) => (
+      <div key={i} className="flex items-center gap-4 p-5">
+        <Skeleton className="h-9 w-12" />
+        <div className="flex-1"><Skeleton className="mb-2 h-4 w-40" /><Skeleton className="h-3 w-56" /></div>
+        <Skeleton className="h-9 w-32 rounded-pill" />
+      </div>
+    ))}
+  </Card>
+);
+
+// ---------- Page ----------
+
+const Sessions = () => {
+  usePageTitle('Sessions');
+  const navigate = useNavigate();
+  const confirm = useConfirm();
+  const [params, setParams] = useSearchParams();
+
+  const view = params.get('view') === 'templates' ? 'templates' : 'day';
+  const rawDay = params.get('date');
+  const dayKey = rawDay && isValid(parseISO(rawDay)) ? rawDay : todayKey();
+  const isToday = dayKey === todayKey();
+
+  const [sessions, setSessions] = useState([]);
+  const [templates, setTemplates] = useState([]);
+  const [status, setStatus] = useState('loading');
+  const [sessionDialog, setSessionDialog] = useState({ open: false, session: null });
+  const [templateDialog, setTemplateDialog] = useState({ open: false, template: null });
+  const [assign, setAssign] = useState(null); // { kind, entity }
+
+  const setView = (v) => setParams((p) => { const n = new URLSearchParams(p); if (v === 'day') n.delete('view'); else n.set('view', v); return n; }, { replace: true });
+  const setDay = (key) => setParams((p) => { const n = new URLSearchParams(p); if (key === todayKey()) n.delete('date'); else n.set('date', key); return n; }, { replace: true });
+
+  const loadDay = useCallback(async () => {
+    setStatus('loading');
+    try {
+      const { data } = await api.get(`/sessions?date=${dayKey}`);
+      setSessions(data);
+      setStatus('ready');
+    } catch {
+      setStatus('error');
+    }
+  }, [dayKey]);
+
+  const loadTemplates = useCallback(async () => {
+    try {
+      const { data } = await api.get('/schedules');
+      setTemplates(data);
+      if (view === 'templates') setStatus('ready');
+    } catch {
+      if (view === 'templates') setStatus('error');
+    }
+  }, [view]);
+
+  useEffect(() => { if (view === 'day') loadDay(); else { setStatus('loading'); loadTemplates(); } }, [view, loadDay, loadTemplates]);
+  // Template count in the tab label.
+  useEffect(() => { if (view === 'day') loadTemplates(); }, [view, loadTemplates]);
+
+  const deleteSession = async (s) => {
+    const ok = await confirm({
+      title: 'Delete this session?',
+      body: `“${s.name}” on ${format(keyToDate(dayKey), 'MMM d')} and its attendance will be removed.${s.scheduleId ? ' The template will skip this day from now on.' : ''} This cannot be undone.`,
+      confirmLabel: 'Delete session',
+      tone: 'danger'
+    });
+    if (!ok) return;
+    try {
+      await api.delete(`/sessions/${s._id}`);
+      setSessions((list) => list.filter((x) => x._id !== s._id));
+      toast.success('Session deleted');
+    } catch (err) {
+      toast.error(apiError(err, 'Could not delete the session'));
+    }
+  };
+
+  const deleteTemplate = async (t) => {
+    const ok = await confirm({
+      title: 'Delete this template?',
+      body: `No new “${t.name}” sessions will be created. Sessions that already exist, and their attendance, are kept.`,
+      confirmLabel: 'Delete template',
+      tone: 'danger'
+    });
+    if (!ok) return;
+    try {
+      await api.delete(`/schedules/${t._id}`);
+      setTemplates((list) => list.filter((x) => x._id !== t._id));
+      toast.success('Template deleted');
+    } catch (err) {
+      toast.error(apiError(err, 'Could not delete the template'));
+    }
+  };
+
+  const toggleTemplate = async (t) => {
+    try {
+      const { data } = await api.put(`/schedules/${t._id}`, { active: !t.active });
+      setTemplates((list) => list.map((x) => (x._id === data._id ? data : x)));
+      toast.success(data.active ? 'Template resumed' : 'Template paused. No new sessions until you resume it.');
+    } catch (err) {
+      toast.error(apiError(err, 'Could not update the template'));
+    }
+  };
+
+  const saveAssignment = async (ids) => {
+    const { kind, entity } = assign;
+    try {
+      const { data } = await api.put(kind === 'session' ? `/sessions/${entity._id}` : `/schedules/${entity._id}`, { assignedAthletes: ids });
+      if (kind === 'session') {
+        setSessions((list) => list.map((x) => (x._id === data._id ? { ...x, ...data } : x)));
+        if (entity.scheduleId) loadTemplates();
+      } else {
+        setTemplates((list) => list.map((x) => (x._id === data._id ? data : x)));
+      }
+      toast.success('Athletes updated');
+    } catch (err) {
+      toast.error(apiError(err, 'Could not save athletes'));
+      throw err;
+    }
+  };
+
+  const templateName = (id) => templates.find((t) => t._id === id)?.name;
+  const assignDescription = assign
+    ? assign.kind === 'template'
+      ? 'Expected at every session this template creates from today on.'
+      : assign.entity.scheduleId
+        ? `This also updates the “${templateName(assign.entity.scheduleId) || 'parent'}” template for today and future days.`
+        : 'Expected at this one session.'
+    : '';
+
+  const primary = view === 'day'
+    ? <Button icon={PiPlus} onClick={() => setSessionDialog({ open: true, session: null })}>New session</Button>
+    : <Button icon={PiPlus} onClick={() => setTemplateDialog({ open: true, template: null })}>New template</Button>;
+
+  return (
+    <>
+      <PageHeader title="Sessions" description="Plan each day and take attendance." actions={primary}>
+        <Segmented
+          label="Sessions view"
+          value={view}
+          onChange={setView}
+          options={[
+            { value: 'day', label: 'By day', icon: PiCalendarDots },
+            { value: 'templates', label: 'Templates', icon: PiRepeat, count: templates.length || undefined }
+          ]}
+          className="self-start"
+        />
+      </PageHeader>
+
+      {view === 'day' && (
+        <div className="flex flex-col gap-4">
+          <DateStepper
+            title={isToday ? 'Today' : format(keyToDate(dayKey), 'EEEE')}
+            subtitle={format(keyToDate(dayKey), 'MMMM d, yyyy')}
+            onPrev={() => setDay(format(addDays(keyToDate(dayKey), -1), 'yyyy-MM-dd'))}
+            onNext={() => setDay(format(addDays(keyToDate(dayKey), 1), 'yyyy-MM-dd'))}
+            onJump={setDay}
+            pickerValue={dayKey}
+            trailing={!isToday && <Button size="sm" variant="secondary" onClick={() => setDay(todayKey())}>Today</Button>}
+          />
+
+          {status === 'loading' ? (
+            <ListSkeleton />
+          ) : status === 'error' ? (
+            <Card><EmptyState icon={PiWarningCircle} title="Could not load sessions" body="Check your connection and try again." action={<Button onClick={loadDay}>Try again</Button>} /></Card>
+          ) : sessions.length === 0 ? (
+            <Card>
+              <EmptyState
+                icon={PiCalendarDots}
+                title={isToday ? 'No sessions today' : `No sessions on ${format(keyToDate(dayKey), 'MMM d')}`}
+                body={templates.length ? 'None of your templates run on this day. Add a one-off session if you are training anyway.' : 'Add a one-off session, or create a template so sessions appear on their own.'}
+                action={(
+                  <div className="flex flex-wrap justify-center gap-2">
+                    <Button icon={PiPlus} onClick={() => setSessionDialog({ open: true, session: null })}>New session</Button>
+                    {templates.length === 0 && <Button variant="secondary" icon={PiRepeat} onClick={() => { setView('templates'); setTemplateDialog({ open: true, template: null }); }}>New template</Button>}
+                  </div>
+                )}
+              />
+            </Card>
+          ) : (
+            <Card as="ul" className="divide-y divide-line-soft animate-rise">
+              {sessions.map((s) => (
+                <SessionRow
+                  key={s._id}
+                  session={s}
+                  onCheckIn={() => navigate(`/checkin/${s._id}`, { state: { from: `/sessions${isToday ? '' : `?date=${dayKey}`}` } })}
+                  onEdit={() => setSessionDialog({ open: true, session: s })}
+                  onAssign={() => setAssign({ kind: 'session', entity: s })}
+                  onDelete={() => deleteSession(s)}
+                />
+              ))}
+            </Card>
+          )}
+        </div>
+      )}
+
+      {view === 'templates' && (
+        status === 'loading' ? (
+          <div className="grid gap-4 md:grid-cols-2" aria-hidden="true">{[0, 1].map((i) => <Skeleton key={i} className="h-36 rounded-xl" />)}</div>
+        ) : status === 'error' ? (
+          <Card><EmptyState icon={PiWarningCircle} title="Could not load templates" action={<Button onClick={loadTemplates}>Try again</Button>} /></Card>
+        ) : templates.length === 0 ? (
+          <Card>
+            <EmptyState
+              icon={PiRepeat}
+              title="No templates yet"
+              body="A template is a weekly plan, like Morning swim on Sun, Tue and Thu. Sessions appear on those days automatically."
+              action={<Button icon={PiPlus} onClick={() => setTemplateDialog({ open: true, template: null })}>Create a template</Button>}
+            />
+          </Card>
+        ) : (
+          <ul className="grid gap-4 md:grid-cols-2 animate-rise">
+            {templates.map((t) => (
+              <TemplateCard
+                key={t._id}
+                template={t}
+                onEdit={() => setTemplateDialog({ open: true, template: t })}
+                onAssign={() => setAssign({ kind: 'template', entity: t })}
+                onToggle={() => toggleTemplate(t)}
+                onDelete={() => deleteTemplate(t)}
+              />
+            ))}
+          </ul>
+        )
+      )}
+
+      {view === 'templates' && templates.length > 0 && (
+        <p className="mt-6 text-[13px] text-muted">
+          Sessions are created when a day is opened. Need a day off? Delete that day&apos;s session from <Link to="/sessions" className="text-accent hover:underline">By day</Link>.
+        </p>
+      )}
+
+      <SessionDialog
+        open={sessionDialog.open}
+        session={sessionDialog.session}
+        dayKey={dayKey}
+        onClose={() => setSessionDialog({ open: false, session: null })}
+        onSaved={(data, created) => {
+          setSessions((list) => (created ? [...list, data] : list.map((x) => (x._id === data._id ? { ...x, ...data } : x)))
+            .sort((a, b) => (a.time || '99:99').localeCompare(b.time || '99:99')));
+          toast.success(created ? 'Session created' : 'Session updated');
+        }}
+      />
+      <TemplateDialog
+        open={templateDialog.open}
+        template={templateDialog.template}
+        onClose={() => setTemplateDialog({ open: false, template: null })}
+        onSaved={(data, created) => {
+          setTemplates((list) => (created ? [data, ...list] : list.map((x) => (x._id === data._id ? data : x))));
+          toast.success(created ? `Template created. Runs every ${data.daysOfWeek.map((d) => DAY_SHORT[d]).join(', ')}.` : 'Template updated');
+          if (view === 'day') loadDay();
+        }}
+      />
+      <AssignAthletesDialog
+        open={!!assign}
+        onClose={() => setAssign(null)}
+        title={assign ? `Athletes for ${assign.entity.name}` : ''}
+        description={assignDescription}
+        initialIds={assign?.entity.assignedAthletes || []}
+        onSave={saveAssignment}
+      />
+    </>
   );
 };
 
