@@ -3,61 +3,54 @@ const Attendance = require('../models/Attendance');
 const Athlete = require('../models/Athlete');
 const Session = require('../models/Session');
 const auth = require('../middleware/auth');
+const { parseDayKey, dayRange, monthRange, toDayKey } = require('../utils/dates');
+const { ensureScheduledSessions } = require('../utils/sessionGenerator');
 
 const router = express.Router();
 
 // All routes require authentication
 router.use(auth);
 
-// POST /api/attendance/bulk - Save attendance for a session (bulk upsert)
+// POST /api/attendance/bulk - Save attendance for a session
+// body: { sessionId, records: [{ athleteId, present }], clearAthleteIds?: [id] }
+// clearAthleteIds removes records for those athletes only. Records for anyone not
+// mentioned (for example archived athletes) are left untouched.
 router.post('/bulk', async (req, res) => {
   try {
-    const { sessionId, records } = req.body;
-    // records: [{ athleteId, present }]
+    const { sessionId, records, clearAthleteIds } = req.body;
 
-    if (!sessionId || !records || !Array.isArray(records)) {
+    if (!sessionId || !Array.isArray(records)) {
       return res.status(400).json({ message: 'Session ID and records array are required.' });
     }
 
-    // Verify session belongs to coach
-    const session = await Session.findOne({
-      _id: sessionId,
-      coach: req.user._id
-    });
+    const session = await Session.findOne({ _id: sessionId, coach: req.user._id });
+    if (!session) return res.status(404).json({ message: 'Session not found.' });
 
-    if (!session) {
-      return res.status(404).json({ message: 'Session not found.' });
+    // Only accept athletes that belong to this coach.
+    const requestedIds = [...new Set([...records.map((r) => r.athleteId), ...(clearAthleteIds || [])])];
+    const owned = await Athlete.find({ _id: { $in: requestedIds }, coach: req.user._id }).select('_id');
+    const ownedIds = new Set(owned.map((a) => a._id.toString()));
+    if (ownedIds.size !== requestedIds.length) {
+      return res.status(400).json({ message: 'One or more athletes were not found.' });
     }
 
-    // Upsert each attendance record
-    const operations = records.map(record => ({
-      updateOne: {
-        filter: {
-          session: sessionId,
-          athlete: record.athleteId,
-          coach: req.user._id
-        },
-        update: {
-          $set: {
-            present: record.present,
-            date: session.date
-          }
-        },
-        upsert: true
+    if (Array.isArray(clearAthleteIds)) {
+      if (clearAthleteIds.length > 0) {
+        await Attendance.deleteMany({ session: sessionId, coach: req.user._id, athlete: { $in: clearAthleteIds } });
       }
-    }));
+    } else {
+      // Legacy clients: anyone not in records is removed.
+      await Attendance.deleteMany({ session: sessionId, coach: req.user._id, athlete: { $nin: records.map((r) => r.athleteId) } });
+    }
 
-    // Find all athletes NOT in the records list for this session, and delete their attendance
-    const recordAthleteIds = records.map(r => r.athleteId);
-    
-    await Attendance.deleteMany({
-      session: sessionId,
-      coach: req.user._id,
-      athlete: { $nin: recordAthleteIds }
-    });
-
-    if (operations.length > 0) {
-      await Attendance.bulkWrite(operations);
+    if (records.length > 0) {
+      await Attendance.bulkWrite(records.map((record) => ({
+        updateOne: {
+          filter: { session: sessionId, athlete: record.athleteId, coach: req.user._id },
+          update: { $set: { present: !!record.present, date: session.date } },
+          upsert: true
+        }
+      })));
     }
 
     res.json({ message: 'Attendance saved successfully.', count: records.length });
@@ -80,218 +73,108 @@ router.get('/session/:sessionId', async (req, res) => {
   }
 });
 
+const gridPayload = async (coachId, start, end) => {
+  const sessions = await Session.find({ coach: coachId, date: { $gte: start, $lte: end } }).sort({ date: 1, time: 1 });
+  const attendance = await Attendance.find({
+    session: { $in: sessions.map((s) => s._id) },
+    coach: coachId
+  }).select('session athlete present');
+  const athletes = await Athlete.find({ coach: coachId, active: true }).sort({ name: 1 });
+  return { sessions, attendance, athletes };
+};
+
 // GET /api/attendance/monthly - Get monthly attendance data
 router.get('/monthly', async (req, res) => {
   try {
-    const { month, year, sessionFilter } = req.query;
-
-    if (!month || !year) {
+    const month = parseInt(req.query.month, 10);
+    const year = parseInt(req.query.year, 10);
+    if (!month || !year || month < 1 || month > 12) {
       return res.status(400).json({ message: 'Month and year are required.' });
     }
-
-    const m = parseInt(month) - 1; // JS months are 0-indexed
-    const y = parseInt(year);
-    const startDate = new Date(y, m, 1);
-    const endDate = new Date(y, m + 1, 0, 23, 59, 59);
-
-    // Get all sessions in this month
-    const sessionQuery = {
-      coach: req.user._id,
-      date: { $gte: startDate, $lte: endDate }
-    };
-
-    if (sessionFilter && sessionFilter !== 'all') {
-      sessionQuery._id = sessionFilter;
-    }
-
-    const sessions = await Session.find(sessionQuery).sort({ date: 1 });
-    const sessionIds = sessions.map(s => s._id);
-
-    // Get all attendance records for these sessions
-    const attendance = await Attendance.find({
-      session: { $in: sessionIds },
-      coach: req.user._id
-    }).populate('athlete', 'name isNewAthlete joinDate active');
-
-    // Get all active athletes
-    const athletes = await Athlete.find({
-      coach: req.user._id,
-      active: true
-    }).sort({ name: 1 });
-
-    res.json({
-      sessions,
-      attendance,
-      athletes,
-      month: m + 1,
-      year: y
-    });
+    const { start, end } = monthRange(year, month);
+    res.json({ ...(await gridPayload(req.user._id, start, end)), month, year });
   } catch (error) {
     res.status(500).json({ message: error.message || 'Error fetching monthly attendance.' });
   }
 });
 
-// GET /api/attendance/range - Get attendance data for a specific date range
+// GET /api/attendance/range - Get attendance data for a date range (yyyy-MM-dd, inclusive)
 router.get('/range', async (req, res) => {
   try {
-    const { startDate, endDate, sessionFilter } = req.query;
-
-    if (!startDate || !endDate) {
+    const startKey = parseDayKey(req.query.startDate);
+    const endKey = parseDayKey(req.query.endDate);
+    if (!req.query.startDate || !req.query.endDate || !startKey || !endKey) {
       return res.status(400).json({ message: 'Start date and end date are required.' });
     }
-
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    end.setHours(23, 59, 59, 999);
-
-    const sessionQuery = {
-      coach: req.user._id,
-      date: { $gte: start, $lte: end }
-    };
-
-    if (sessionFilter && sessionFilter !== 'all') {
-      sessionQuery._id = sessionFilter;
-    }
-
-    const sessions = await Session.find(sessionQuery).sort({ date: 1 });
-    const sessionIds = sessions.map(s => s._id);
-
-    const attendance = await Attendance.find({
-      session: { $in: sessionIds },
-      coach: req.user._id
-    }).populate('athlete', 'name isNewAthlete joinDate active');
-
-    const athletes = await Athlete.find({
-      coach: req.user._id,
-      active: true
-    }).sort({ name: 1 });
-
-    res.json({
-      sessions,
-      attendance,
-      athletes
-    });
+    const start = dayRange(startKey).start;
+    const end = new Date(dayRange(endKey).end.getTime() - 1);
+    res.json(await gridPayload(req.user._id, start, end));
   } catch (error) {
     res.status(500).json({ message: error.message || 'Error fetching attendance range.' });
   }
 });
 
-// GET /api/attendance/stats - Get dashboard stats
+// GET /api/attendance/stats?date=yyyy-MM-dd - Dashboard stats for the coach's "today"
 router.get('/stats', async (req, res) => {
   try {
-    const today = new Date();
-    const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-    const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+    const coach = req.user._id;
+    const todayKey = parseDayKey(req.query.date) || toDayKey(new Date());
+    const today = dayRange(todayKey);
 
-    // Today's stats
-    const todaySessions = await Session.countDocuments({
-      coach: req.user._id,
-      date: { $gte: startOfDay, $lt: endOfDay }
+    // Make sure today's template sessions exist so the dashboard is accurate.
+    await ensureScheduledSessions(coach, todayKey);
+
+    const [y, m, d] = todayKey.split('-').map(Number);
+    const month = monthRange(y, m);
+
+    const [todaySessions, todayPresent, totalAthletes, monthSessions, joinedThisMonth, inactiveAthletes, athletes] = await Promise.all([
+      Session.countDocuments({ coach, date: { $gte: today.start, $lt: today.end } }),
+      Attendance.countDocuments({ coach, date: { $gte: today.start, $lt: today.end }, present: true }),
+      Athlete.countDocuments({ coach, active: true }),
+      Session.countDocuments({ coach, date: { $gte: month.start, $lte: month.end } }),
+      Athlete.countDocuments({ coach, joinDate: { $gte: month.start, $lte: month.end } }),
+      Athlete.countDocuments({ coach, active: false }),
+      Athlete.find({ coach, active: true }).sort({ name: 1 })
+    ]);
+
+    // One pass over this month's records gives both the daily trend and per-athlete stats.
+    const monthRecords = await Attendance.find({ coach, date: { $gte: month.start, $lte: month.end } }).select('athlete present date');
+
+    const dailyPresent = new Array(d).fill(0);
+    const perAthlete = new Map();
+    monthRecords.forEach((r) => {
+      const day = new Date(r.date).getUTCDate();
+      if (r.present && day <= d) dailyPresent[day - 1] += 1;
+      const key = r.athlete.toString();
+      const s = perAthlete.get(key) || { total: 0, present: 0 };
+      s.total += 1;
+      if (r.present) s.present += 1;
+      perAthlete.set(key, s);
     });
 
-    const todayPresent = await Attendance.countDocuments({
-      coach: req.user._id,
-      date: { $gte: startOfDay, $lt: endOfDay },
-      present: true
-    });
+    const dailyTrend = dailyPresent.map((present, i) => ({
+      day: i + 1,
+      date: `${todayKey.slice(0, 8)}${String(i + 1).padStart(2, '0')}`,
+      present
+    }));
 
-    // Total active athletes
-    const totalAthletes = await Athlete.countDocuments({
-      coach: req.user._id,
-      active: true
-    });
-
-    // This month's stats
-    const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-    const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0, 23, 59, 59);
-
-    const monthSessions = await Session.countDocuments({
-      coach: req.user._id,
-      date: { $gte: startOfMonth, $lte: endOfMonth }
-    });
-
-    // Monthly attendance trend (daily data for chart)
-    const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
-    const dailyTrend = [];
-
-    for (let day = 1; day <= daysInMonth; day++) {
-      const dayStart = new Date(today.getFullYear(), today.getMonth(), day);
-      const dayEnd = new Date(today.getFullYear(), today.getMonth(), day + 1);
-
-      if (dayStart > today) break; // Don't include future days
-
-      const presentCount = await Attendance.countDocuments({
-        coach: req.user._id,
-        date: { $gte: dayStart, $lt: dayEnd },
-        present: true
-      });
-
-      dailyTrend.push({
-        day,
-        date: dayStart.toISOString().split('T')[0],
-        present: presentCount
-      });
-    }
-
-    // Per-athlete stats this month
-    const athletes = await Athlete.find({
-      coach: req.user._id,
-      active: true
-    }).sort({ name: 1 });
-
-    const athleteStats = await Promise.all(
-      athletes.map(async (athlete) => {
-        const totalRecords = await Attendance.countDocuments({
-          coach: req.user._id,
-          athlete: athlete._id,
-          date: { $gte: startOfMonth, $lte: endOfMonth }
-        });
-
-        const presentRecords = await Attendance.countDocuments({
-          coach: req.user._id,
-          athlete: athlete._id,
-          date: { $gte: startOfMonth, $lte: endOfMonth },
-          present: true
-        });
-
-        return {
-          id: athlete._id,
-          name: athlete.name,
-          isNewAthlete: athlete.isNewAthlete,
-          totalSessions: totalRecords,
-          attended: presentRecords,
-          percentage: totalRecords > 0
-            ? Math.round((presentRecords / totalRecords) * 100)
-            : 0
-        };
-      })
-    );
-
-    // Athlete churn stats
-    const joinedThisMonth = await Athlete.countDocuments({
-      coach: req.user._id,
-      joinDate: { $gte: startOfMonth, $lte: endOfMonth }
-    });
-
-    const inactiveAthletes = await Athlete.countDocuments({
-      coach: req.user._id,
-      active: false
+    const athleteStats = athletes.map((athlete) => {
+      const s = perAthlete.get(athlete._id.toString()) || { total: 0, present: 0 };
+      return {
+        id: athlete._id,
+        name: athlete.name,
+        isNewAthlete: athlete.isNewAthlete,
+        totalSessions: s.total,
+        attended: s.present,
+        percentage: s.total > 0 ? Math.round((s.present / s.total) * 100) : 0
+      };
     });
 
     res.json({
-      today: {
-        sessions: todaySessions,
-        present: todayPresent
-      },
+      today: { date: todayKey, sessions: todaySessions, present: todayPresent },
       totalAthletes,
-      month: {
-        sessions: monthSessions,
-        dailyTrend
-      },
-      churn: {
-        joinedThisMonth,
-        inactiveAthletes
-      },
+      month: { sessions: monthSessions, dailyTrend },
+      churn: { joinedThisMonth, inactiveAthletes },
       athleteStats
     });
   } catch (error) {

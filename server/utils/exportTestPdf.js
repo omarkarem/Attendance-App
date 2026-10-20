@@ -1,4 +1,5 @@
 const PDFDocument = require('pdfkit');
+const { writeFooter, isAllTime, formatPeriodLabel } = require('./pdfHelpers');
 
 // ── Shared helpers ──
 
@@ -38,10 +39,6 @@ const formatDistance = (meters) => {
   return `${meters} m`;
 };
 
-const formatPeriodLabel = (startDate, endDate) => {
-  const opts = { year: 'numeric', month: 'short', day: 'numeric' };
-  return `${startDate.toLocaleDateString('en-US', opts)} — ${endDate.toLocaleDateString('en-US', opts)}`;
-};
 
 // ── Colors ──
 const C = {
@@ -70,7 +67,7 @@ const categoryColors = {
 };
 
 // ═══════════════════════════════════════════
-// MODE 1: Single Athlete — all tests
+// MODE 1: Single Athlete - all tests
 // ═══════════════════════════════════════════
 
 const generateAthleteTestPdf = (data) => {
@@ -113,7 +110,7 @@ const generateAthleteTestPdf = (data) => {
 
   drawStatCard(cardStartX, cardY, 'Total Tests', totalTests);
   drawStatCard(cardStartX + cardW + cardGap, cardY, 'Test Types', uniqueTypes);
-  drawStatCard(cardStartX + (cardW + cardGap) * 2, cardY, 'Period', `${Math.ceil((endDate - startDate) / 86400000)}d`, C.subtitle);
+  drawStatCard(cardStartX + (cardW + cardGap) * 2, cardY, 'Period', isAllTime(startDate) ? 'All' : `${Math.ceil((endDate - startDate) / 86400000)}d`, C.subtitle);
 
   doc.y = cardY + cardH + 20;
 
@@ -144,7 +141,7 @@ const generateAthleteTestPdf = (data) => {
     doc.roundedRect(30, sectionY, doc.page.width - 60, 28, 4).fill(catColor);
     doc.fontSize(11).font('Helvetica-Bold').fillColor('#ffffff')
       .text(`${typeName}`, 40, sectionY + 7);
-    doc.fontSize(9).font('Helvetica').fillColor('#ffffffcc')
+    doc.fontSize(9).font('Helvetica').fillColor('#ffffff')
       .text(`${category} • ${typeResults.length} result${typeResults.length !== 1 ? 's' : ''}`,
         30, sectionY + 8, { width: doc.page.width - 70, align: 'right' });
 
@@ -163,9 +160,9 @@ const generateAthleteTestPdf = (data) => {
     tx += colWidths.distance;
     doc.text('Time', tx + 5, tableY + 6, { width: colWidths.time, align: 'right' });
     tx += colWidths.time;
-    doc.text('Pace / Speed', tx + 5, tableY + 6, { width: colWidths.pace, align: 'right' });
+    doc.text('Pace / Speed', tx + 5, tableY + 6, { width: colWidths.pace - 12, align: 'right' });
     tx += colWidths.pace;
-    doc.text('Notes', tx + 5, tableY + 6, { width: colWidths.desc });
+    doc.text('Notes', tx + 12, tableY + 6, { width: colWidths.desc - 12 });
 
     tableY += 20;
 
@@ -205,19 +202,19 @@ const generateAthleteTestPdf = (data) => {
       doc.text(formatTime(r.time), tx + 5, tableY + 5, { width: colWidths.time, align: 'right' });
       tx += colWidths.time;
 
-      // Pace — highlight best
+      // Pace - highlight best
       if (isBest && typeResults.length > 1) {
         doc.fontSize(7).font('Helvetica-Bold').fillColor(C.green);
-        doc.text(`★ ${formatPace(r.distance, r.time, category)}`, tx + 5, tableY + 5, { width: colWidths.pace, align: 'right' });
+        doc.text(formatPace(r.distance, r.time, category), tx + 5, tableY + 5, { width: colWidths.pace - 12, align: 'right' });
       } else {
         doc.fontSize(7).font('Helvetica').fillColor(C.accent);
-        doc.text(formatPace(r.distance, r.time, category), tx + 5, tableY + 5, { width: colWidths.pace, align: 'right' });
+        doc.text(formatPace(r.distance, r.time, category), tx + 5, tableY + 5, { width: colWidths.pace - 12, align: 'right' });
       }
       tx += colWidths.pace;
 
       doc.fontSize(6).font('Helvetica').fillColor(C.muted);
       const desc = r.description || '';
-      doc.text(desc.length > 40 ? desc.substring(0, 40) + '…' : desc, tx + 5, tableY + 6, { width: colWidths.desc });
+      doc.text(desc.length > 60 ? desc.substring(0, 60) + '...' : desc, tx + 12, tableY + 6, { width: colWidths.desc - 12, lineBreak: false });
 
       tableY += 18;
     });
@@ -270,15 +267,11 @@ const generateAthleteTestPdf = (data) => {
   // Handle empty results
   if (results.length === 0) {
     doc.fontSize(12).font('Helvetica').fillColor(C.muted)
-      .text('No test results found for the selected period.', { align: 'center' });
+      .text('No test results found for the selected period.', 30, doc.y, { width: doc.page.width - 60, align: 'center' });
   }
 
   // ── Footer ──
-  doc.fontSize(8).font('Helvetica').fillColor(C.muted)
-    .text(`Generated on ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`, 30, doc.page.height - 35, {
-      align: 'center',
-      width: doc.page.width - 60
-    });
+  writeFooter(doc, C.muted);
 
   return doc;
 };
@@ -481,7 +474,7 @@ const generateTestTypeReportPdf = (data) => {
 
       const impColor = improvement >= 0 ? C.green : C.red;
       doc.font('Helvetica-Bold').fillColor(impColor);
-      doc.text(`${improvement >= 0 ? '+' : ''}${improvement}%`, tx, tableY + 7, { width: colWidths.improvement, align: 'center' });
+      doc.text(hasBaseline ? `${improvement >= 0 ? '+' : ''}${improvement}%` : '-', tx, tableY + 7, { width: colWidths.improvement, align: 'center' });
       tx += colWidths.improvement;
 
       const lastDate = new Date(sorted[sorted.length - 1].date);
@@ -496,15 +489,11 @@ const generateTestTypeReportPdf = (data) => {
   if (results.length === 0) {
     doc.y = tableY + 10;
     doc.fontSize(12).font('Helvetica').fillColor(C.muted)
-      .text('No test results found for the selected period.', { align: 'center' });
+      .text('No test results found for the selected period.', 30, doc.y, { width: doc.page.width - 60, align: 'center' });
   }
 
   // ── Footer ──
-  doc.fontSize(8).font('Helvetica').fillColor(C.muted)
-    .text(`Generated on ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`, 30, doc.page.height - 35, {
-      align: 'center',
-      width: doc.page.width - 60
-    });
+  writeFooter(doc, C.muted);
 
   return doc;
 };
@@ -575,7 +564,7 @@ const generateMultiTestTypeReportPdf = (allTestData) => {
     row.items.forEach((pill) => {
       // Pill background
       doc.roundedRect(px, pillY, pill.pillW, pillH, pillH / 2).fill(pill.color);
-      // Pill text — vertically centered (extra 1pt for ascender correction)
+      // Pill text - vertically centered (extra 1pt for ascender correction)
       const pillFontSize = 8;
       const textYOffset = (pillH - pillFontSize) / 2 + 1;
       doc.fontSize(pillFontSize).font('Helvetica-Bold').fillColor('#ffffff')
@@ -789,6 +778,8 @@ const generateMultiTestTypeReportPdf = (allTestData) => {
         });
 
         const baselinePace = prevPaces.length > 0 ? prevPaces[prevPaces.length - 1] : paces[0];
+        // With one result and nothing earlier there is nothing to compare against.
+        const hasBaseline = prevPaces.length > 0 || paces.length > 1;
         const improvement = baselinePace !== 0
           ? (isLowerBetter
               ? Math.round(((baselinePace - latest) / baselinePace) * 100)
@@ -810,7 +801,7 @@ const generateMultiTestTypeReportPdf = (allTestData) => {
           // ── Cycling columns ──
           const latestResult = sorted[sorted.length - 1];
 
-          // Avg Speed (km/h) — average across all results in period
+          // Avg Speed (km/h) - average across all results in period
           doc.fontSize(7).font('Helvetica-Bold').fillColor(C.accent);
           doc.text(fmtPace(avg), tx, tableY + 7, { width: colWidths.avgSpeed, align: 'center' });
           tx += colWidths.avgSpeed;
@@ -845,9 +836,9 @@ const generateMultiTestTypeReportPdf = (allTestData) => {
           tx += colWidths.wkg;
 
           // Change
-          const impColor = improvement >= 0 ? C.green : C.red;
+          const impColor = !hasBaseline ? C.muted : improvement >= 0 ? C.green : C.red;
           doc.font('Helvetica-Bold').fillColor(impColor);
-          doc.text(`${improvement >= 0 ? '+' : ''}${improvement}%`, tx, tableY + 7, { width: colWidths.improvement, align: 'center' });
+          doc.text(hasBaseline ? `${improvement >= 0 ? '+' : ''}${improvement}%` : '-', tx, tableY + 7, { width: colWidths.improvement, align: 'center' });
           tx += colWidths.improvement;
 
           // Last test date
@@ -903,9 +894,9 @@ const generateMultiTestTypeReportPdf = (allTestData) => {
           tx += colWidths.avgPace;
 
           // Change
-          const impColor = improvement >= 0 ? C.green : C.red;
+          const impColor = !hasBaseline ? C.muted : improvement >= 0 ? C.green : C.red;
           doc.font('Helvetica-Bold').fillColor(impColor);
-          doc.text(`${improvement >= 0 ? '+' : ''}${improvement}%`, tx, tableY + 7, { width: colWidths.improvement, align: 'center' });
+          doc.text(hasBaseline ? `${improvement >= 0 ? '+' : ''}${improvement}%` : '-', tx, tableY + 7, { width: colWidths.improvement, align: 'center' });
           tx += colWidths.improvement;
 
           // Last test date
@@ -933,18 +924,14 @@ const generateMultiTestTypeReportPdf = (allTestData) => {
     if (results.length === 0) {
       doc.y = tableY + 10;
       doc.fontSize(12).font('Helvetica').fillColor(C.muted)
-        .text('No test results found for the selected period.', { align: 'center' });
+        .text('No test results found for the selected period.', 30, doc.y, { width: doc.page.width - 60, align: 'center' });
     }
 
     doc.y = tableY + 10;
   });
 
   // ── Footer ──
-  doc.fontSize(8).font('Helvetica').fillColor(C.muted)
-    .text(`Generated on ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`, 30, doc.page.height - 35, {
-      align: 'center',
-      width: doc.page.width - 60
-    });
+  writeFooter(doc, C.muted);
 
   return doc;
 };

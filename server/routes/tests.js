@@ -1,7 +1,32 @@
 const express = require('express');
 const TestType = require('../models/TestType');
 const TestResult = require('../models/TestResult');
+const Athlete = require('../models/Athlete');
 const auth = require('../middleware/auth');
+
+// Validates a result payload and confirms the athlete and test type belong to the coach.
+const checkResult = async (coach, { athleteId, testTypeId, distance, time }) => {
+  if (!athleteId || !testTypeId || distance === undefined || time === undefined) {
+    return 'Athlete, test type, distance, and time are required.';
+  }
+  if (!Number.isFinite(Number(distance)) || Number(distance) <= 0) return 'Distance must be greater than zero.';
+  if (!Number.isFinite(Number(time)) || Number(time) <= 0) return 'Time must be greater than zero.';
+  const [athlete, testType] = await Promise.all([
+    Athlete.exists({ _id: athleteId, coach }),
+    TestType.exists({ _id: testTypeId, coach })
+  ]);
+  if (!athlete) return 'Athlete not found.';
+  if (!testType) return 'Test type not found.';
+  return null;
+};
+
+const CATEGORIES = ['Running', 'Swimming', 'Cycling', 'Other'];
+const checkType = ({ title, category, measureType }) => {
+  if (!title || !title.trim() || !category || !measureType) return 'Title, category, and measure type are required.';
+  if (!CATEGORIES.includes(category)) return 'Invalid category.';
+  if (!['Distance', 'Time'].includes(measureType)) return 'Invalid measure type.';
+  return null;
+};
 
 const router = express.Router();
 
@@ -25,9 +50,8 @@ router.post('/types', async (req, res) => {
   try {
     const { title, category, measureType, targetDistance, targetTime } = req.body;
 
-    if (!title || !category || !measureType) {
-      return res.status(400).json({ message: 'Title, category, and measure type are required.' });
-    }
+    const invalid = checkType(req.body);
+    if (invalid) return res.status(400).json({ message: invalid });
 
     const testType = await TestType.create({
       title: title.trim(),
@@ -49,9 +73,8 @@ router.put('/types/:id', async (req, res) => {
   try {
     const { title, category, measureType, targetDistance, targetTime } = req.body;
 
-    if (!title || !category || !measureType) {
-      return res.status(400).json({ message: 'Title, category, and measure type are required.' });
-    }
+    const invalid = checkType(req.body);
+    if (invalid) return res.status(400).json({ message: invalid });
 
     const testType = await TestType.findOneAndUpdate(
       { _id: req.params.id, coach: req.user._id },
@@ -59,10 +82,10 @@ router.put('/types/:id', async (req, res) => {
         title: title.trim(),
         category,
         measureType,
-        targetDistance,
-        targetTime
+        targetDistance: measureType === 'Distance' ? targetDistance : null,
+        targetTime: measureType === 'Time' ? targetTime : null
       },
-      { new: true }
+      { new: true, runValidators: true }
     );
 
     if (!testType) {
@@ -109,7 +132,6 @@ router.get('/results/athletes', async (req, res) => {
       testType: { $in: ids }
     });
 
-    const Athlete = require('../models/Athlete');
     const athletes = await Athlete.find({
       _id: { $in: athleteIds },
       coach: req.user._id
@@ -148,9 +170,8 @@ router.post('/results', async (req, res) => {
             avgPower, maxPower, avgCadence, maxCadence,
             avgHeartRate, maxHeartRate, weight } = req.body;
 
-    if (!athleteId || !testTypeId || distance === undefined || time === undefined) {
-      return res.status(400).json({ message: 'Athlete, test type, distance, and time are required.' });
-    }
+    const invalid = await checkResult(req.user._id, req.body);
+    if (invalid) return res.status(400).json({ message: invalid });
 
     const resultData = {
       athlete: athleteId,
@@ -188,9 +209,8 @@ router.put('/results/:id', async (req, res) => {
             avgPower, maxPower, avgCadence, maxCadence,
             avgHeartRate, maxHeartRate, weight } = req.body;
 
-    if (!athleteId || !testTypeId || distance === undefined || time === undefined) {
-      return res.status(400).json({ message: 'Athlete, test type, distance, and time are required.' });
-    }
+    const invalid = await checkResult(req.user._id, req.body);
+    if (invalid) return res.status(400).json({ message: invalid });
 
     const updateData = {
       athlete: athleteId,

@@ -9,6 +9,7 @@ const generatePdf = require('../utils/exportPdf');
 const { generateAthleteTestPdf, generateTestTypeReportPdf, generateMultiTestTypeReportPdf } = require('../utils/exportTestPdf');
 const { generateAthleteTestExcel, generateTestTypeReportExcel, generateMultiTestTypeReportExcel } = require('../utils/exportTestExcel');
 const auth = require('../middleware/auth');
+const { monthRange } = require('../utils/dates');
 
 const router = express.Router();
 
@@ -25,8 +26,7 @@ router.get('/', async (req, res) => {
 
     const m = parseInt(month) - 1;
     const y = parseInt(year);
-    const startDate = new Date(y, m, 1);
-    const endDate = new Date(y, m + 1, 0, 23, 59, 59);
+    const { start: startDate, end: endDate } = monthRange(y, m + 1);
 
     // Get sessions
     const sessionQuery = {
@@ -38,7 +38,11 @@ router.get('/', async (req, res) => {
       sessionQuery.name = sessionFilter;
     }
 
-    const sessions = await Session.find(sessionQuery).sort({ date: 1 });
+    const sessions = await Session.find(sessionQuery).sort({ date: 1, time: 1 });
+
+    if (sessions.length === 0) {
+      return res.status(404).json({ message: 'No sessions found for this month.' });
+    }
     const sessionIds = sessions.map(s => s._id);
 
     // Get attendance

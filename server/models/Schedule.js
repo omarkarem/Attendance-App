@@ -31,6 +31,11 @@ const scheduleSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Athlete'
   }],
+  // Days ("yyyy-MM-dd") whose generated session the coach deleted; never regenerate them.
+  skippedDates: {
+    type: [String],
+    default: []
+  },
   active: {
     type: Boolean,
     default: true

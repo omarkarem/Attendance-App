@@ -1,4 +1,5 @@
 const PDFDocument = require('pdfkit');
+const { drawCheck, drawCross, writeFooter } = require('./pdfHelpers');
 
 const generatePdf = (data) => {
   const { sessions, attendance, athletes, month, year } = data;
@@ -156,17 +157,15 @@ const generatePdf = (data) => {
           presentCount++;
           // Green filled circle with white checkmark
           doc.circle(cellCenterX, cellCenterY, 6).fill(colors.presentGreen);
-          doc.fontSize(9).font('Helvetica-Bold').fillColor('#ffffff');
-          doc.text('✓', x + 2, y + 6, { width: cellWidth - 4, align: 'center' });
+          drawCheck(doc, cellCenterX, cellCenterY);
         } else {
           // Red filled circle with white X
           doc.circle(cellCenterX, cellCenterY, 6).fill(colors.absentRed);
-          doc.fontSize(9).font('Helvetica-Bold').fillColor('#ffffff');
-          doc.text('✗', x + 2, y + 6, { width: cellWidth - 4, align: 'center' });
+          drawCross(doc, cellCenterX, cellCenterY);
         }
       } else {
         doc.fontSize(7).font('Helvetica').fillColor(colors.muted);
-        doc.text('–', x + 2, y + 8, { width: cellWidth - 4, align: 'center' });
+        doc.text('-', x + 2, y + 8, { width: cellWidth - 4, align: 'center' });
       }
       x += cellWidth;
     });
@@ -176,7 +175,7 @@ const generatePdf = (data) => {
     doc.text(presentCount.toString(), x + 2, y + 8, { width: totalColWidth - 4, align: 'center' });
     x += totalColWidth;
 
-    // Percentage column — color coded
+    // Percentage column, color coded
     const pct = expectedCount > 0 ? Math.round((presentCount / expectedCount) * 100) : 0;
     const pctColor = pct >= 80 ? colors.presentGreen : pct >= 50 ? '#f59e0b' : colors.absentRed;
     doc.fontSize(8).font('Helvetica-Bold').fillColor(pctColor);
@@ -189,27 +188,21 @@ const generatePdf = (data) => {
   const legendY = Math.min(y + 16, doc.page.height - 60);
   if (legendY < doc.page.height - 40) {
     doc.circle(44, legendY + 4, 5).fill(colors.presentGreen);
-    doc.fontSize(7).font('Helvetica-Bold').fillColor('#ffffff')
-      .text('✓', 38, legendY, { width: 12, align: 'center' });
+    drawCheck(doc, 44, legendY + 4, 2.6);
     doc.fontSize(7).font('Helvetica').fillColor(colors.subtitle)
       .text('Present', 54, legendY + 1);
 
     doc.circle(104, legendY + 4, 5).fill(colors.absentRed);
-    doc.fontSize(7).font('Helvetica-Bold').fillColor('#ffffff')
-      .text('✗', 98, legendY, { width: 12, align: 'center' });
+    drawCross(doc, 104, legendY + 4, 2.1);
     doc.fontSize(7).font('Helvetica').fillColor(colors.subtitle)
       .text('Absent', 114, legendY + 1);
 
     doc.fontSize(7).font('Helvetica').fillColor(colors.muted)
-      .text('–  Not expected', 154, legendY + 1);
+      .text('-  Not expected', 154, legendY + 1);
   }
 
   // ── Footer ──
-  doc.fontSize(8).font('Helvetica').fillColor(colors.muted)
-    .text(`Generated on ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`, 30, doc.page.height - 35, {
-      align: 'center',
-      width: doc.page.width - 60
-    });
+  writeFooter(doc, colors.muted);
 
   return doc;
 };

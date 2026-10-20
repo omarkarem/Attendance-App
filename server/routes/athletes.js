@@ -1,6 +1,18 @@
 const express = require('express');
 const Athlete = require('../models/Athlete');
+const Attendance = require('../models/Attendance');
+const Session = require('../models/Session');
+const Schedule = require('../models/Schedule');
+const TestResult = require('../models/TestResult');
 const auth = require('../middleware/auth');
+const { escapeRegex } = require('../utils/dates');
+
+const nameError = (name) => {
+  const trimmed = (name || '').trim();
+  if (trimmed.length < 2) return 'Name must be at least 2 characters.';
+  if (trimmed.length > 50) return 'Name must be less than 50 characters.';
+  return null;
+};
 
 const router = express.Router();
 
@@ -22,7 +34,7 @@ router.get('/', async (req, res) => {
 
     // Search by name
     if (search) {
-      query.name = { $regex: search, $options: 'i' };
+      query.name = { $regex: escapeRegex(search), $options: 'i' };
     }
 
     const athletes = await Athlete.find(query).sort({ name: 1 });
@@ -37,13 +49,13 @@ router.post('/', async (req, res) => {
   try {
     const { name, isNewAthlete } = req.body;
 
-    if (!name) {
-      return res.status(400).json({ message: 'Athlete name is required.' });
+    if (nameError(name)) {
+      return res.status(400).json({ message: nameError(name) });
     }
 
     // Check for duplicate name under same coach
     const existing = await Athlete.findOne({
-      name: { $regex: `^${name.trim()}$`, $options: 'i' },
+      name: { $regex: `^${escapeRegex(name.trim())}$`, $options: 'i' },
       coach: req.user._id
     });
 
@@ -79,8 +91,9 @@ router.put('/:id', async (req, res) => {
     }
 
     if (name !== undefined) {
+      if (nameError(name)) return res.status(400).json({ message: nameError(name) });
       const existing = await Athlete.findOne({
-        name: { $regex: `^${name.trim()}$`, $options: 'i' },
+        name: { $regex: `^${escapeRegex(name.trim())}$`, $options: 'i' },
         coach: req.user._id,
         _id: { $ne: req.params.id }
       });
@@ -130,8 +143,13 @@ router.delete('/:id/permanent', async (req, res) => {
       return res.status(404).json({ message: 'Athlete not found.' });
     }
 
-    const Attendance = require('../models/Attendance');
-    await Attendance.deleteMany({ athlete: req.params.id });
+    // Remove everything that references the athlete so nothing shows up as "Unknown".
+    await Promise.all([
+      Attendance.deleteMany({ athlete: athlete._id, coach: req.user._id }),
+      TestResult.deleteMany({ athlete: athlete._id, coach: req.user._id }),
+      Session.updateMany({ coach: req.user._id }, { $pull: { assignedAthletes: athlete._id } }),
+      Schedule.updateMany({ coach: req.user._id }, { $pull: { assignedAthletes: athlete._id } })
+    ]);
 
     res.json({ message: 'Athlete permanently deleted.' });
   } catch (error) {
@@ -142,11 +160,6 @@ router.delete('/:id/permanent', async (req, res) => {
 // GET /api/athletes/:id/profile - Get comprehensive athlete profile data
 router.get('/:id/profile', async (req, res) => {
   try {
-    const Attendance = require('../models/Attendance');
-    const Session = require('../models/Session');
-    const Schedule = require('../models/Schedule');
-    const TestResult = require('../models/TestResult');
-
     const athlete = await Athlete.findOne({
       _id: req.params.id,
       coach: req.user._id
@@ -176,33 +189,21 @@ router.get('/:id/profile', async (req, res) => {
       }
     }
 
-    // --- Monthly attendance trend (last 6 months) ---
+    // --- Monthly attendance trend (last 6 months, UTC calendar months) ---
     const now = new Date();
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const monthlyTrend = [];
     for (let i = 5; i >= 0; i--) {
-      const monthStart = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const monthEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0, 23, 59, 59);
-      
-      const monthAttendance = await Attendance.countDocuments({
-        coach: req.user._id,
-        athlete: athlete._id,
-        date: { $gte: monthStart, $lte: monthEnd }
-      });
-      
-      const monthPresent = await Attendance.countDocuments({
-        coach: req.user._id,
-        athlete: athlete._id,
-        date: { $gte: monthStart, $lte: monthEnd },
-        present: true
-      });
-
-      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
+      const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i + 1, 1));
+      const inMonth = allAttendance.filter((a) => a.date >= start && a.date < end);
+      const present = inMonth.filter((a) => a.present).length;
       monthlyTrend.push({
-        month: monthNames[monthStart.getMonth()],
-        year: monthStart.getFullYear(),
-        total: monthAttendance,
-        present: monthPresent,
-        rate: monthAttendance > 0 ? Math.round((monthPresent / monthAttendance) * 100) : 0
+        month: monthNames[start.getUTCMonth()],
+        year: start.getUTCFullYear(),
+        total: inMonth.length,
+        present,
+        rate: inMonth.length > 0 ? Math.round((present / inMonth.length) * 100) : 0
       });
     }
 
