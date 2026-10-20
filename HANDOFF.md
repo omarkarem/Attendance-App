@@ -18,7 +18,7 @@ Commits on the branch:
 | `cff7dc2` | Server data bugs, timezone handling, PDF exports |
 | `7169ca2` | Client redesign and UI/UX bug fixes |
 | `e9f2f00` | Handoff document |
-| (next) | Daily template generation: catch-up on read, watermark, Vercel Cron |
+| `1a6cdde` | Daily template generation: catch-up on read, watermark, Vercel Cron |
 
 ---
 
