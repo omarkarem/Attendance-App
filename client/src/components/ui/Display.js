@@ -35,7 +35,7 @@ export const PageHeader = ({ title, description, actions, back, children }) => (
   <header className="mb-6 flex flex-col gap-4 md:mb-8">
     {back}
     <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-      <div className="min-w-0">
+      <div className="min-w-0 [overflow-wrap:anywhere]">
         <h1 className="font-display text-[28px] font-medium leading-[1.05] tracking-[-0.045em] text-ink md:text-[36px]">{title}</h1>
         {description && <p className="mt-2 max-w-[60ch] text-[15px] text-muted">{description}</p>}
       </div>

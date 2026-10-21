@@ -165,11 +165,10 @@ const Dashboard = () => {
 
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader
-        title={`${greeting()}, ${firstName}`}
-        description={format(new Date(), 'EEEE, MMMM d')}
-        actions={<Link to="/athletes" className="hidden md:block"><Button variant="secondary" icon={PiUsersThree}>Athletes</Button></Link>}
-      />
+      {/* The header brings its own bottom margin; cancel it inside this gap-based stack. */}
+      <div className="-mb-6 md:-mb-8">
+        <PageHeader title={`${greeting()}, ${firstName}`} description={format(new Date(), 'EEEE, MMMM d')} />
+      </div>
 
       <div className="animate-rise">
         <TodayCard sessions={todaySessions} onCheckIn={(id) => navigate(`/checkin/${id}`)} onStart={() => setStartOpen(true)} />
@@ -242,7 +241,7 @@ const Dashboard = () => {
               icon={PiUsersThree}
               title="No athletes yet"
               body="Add your roster to start tracking attendance."
-              action={<Link to="/athletes"><Button icon={PiPlus}>Add athletes</Button></Link>}
+              action={<Button icon={PiPlus} onClick={() => setAddOpen(true)}>Add athletes</Button>}
               className="py-10"
             />
           ) : (

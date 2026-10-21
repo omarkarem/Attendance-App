@@ -6,6 +6,7 @@ import AuthLayout, { PasswordInput } from '../components/layout/AuthLayout';
 import { Field, Input } from '../components/ui/Form';
 import Button from '../components/ui/Button';
 import { apiError } from '../utils/browser';
+import { isTouchDevice } from '../utils/device';
 
 const Signup = () => {
   usePageTitle('Create account');
@@ -46,7 +47,7 @@ const Signup = () => {
     >
       <form onSubmit={handleSubmit} className="flex flex-col gap-5" noValidate>
         <Field label="Full name" htmlFor="signup-name" error={errors.name}>
-          <Input id="signup-name" value={form.name} onChange={set('name')} autoComplete="name" aria-invalid={!!errors.name} autoFocus />
+          <Input id="signup-name" value={form.name} onChange={set('name')} autoComplete="name" aria-invalid={!!errors.name} autoFocus={!isTouchDevice()} />
         </Field>
         <Field label="Email" htmlFor="signup-email" error={errors.email}>
           <Input id="signup-email" type="email" inputMode="email" value={form.email} onChange={set('email')} autoComplete="email" aria-invalid={!!errors.email} />

@@ -6,6 +6,7 @@ import AuthLayout, { PasswordInput } from '../components/layout/AuthLayout';
 import { Field, Input } from '../components/ui/Form';
 import Button from '../components/ui/Button';
 import { apiError } from '../utils/browser';
+import { isTouchDevice } from '../utils/device';
 
 const Login = () => {
   usePageTitle('Sign in');
@@ -51,7 +52,7 @@ const Login = () => {
             autoComplete="email"
             inputMode="email"
             aria-invalid={!!errors.email}
-            autoFocus
+            autoFocus={!isTouchDevice()}
           />
         </Field>
         <Field label="Password" htmlFor="login-password" error={errors.password}>

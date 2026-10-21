@@ -258,7 +258,7 @@ const RecordView = ({ athletes, testTypes, templates, status, preselectedAthlete
   if (testTypes.length === 0) {
     return (
       <Card>
-        <EmptyState icon={PiTimer} title="Set up a test first" body="Create a test type, like a 5 km run, before recording results." action={<Link to="/tests?tab=types"><Button icon={PiPlus}>New test type</Button></Link>} />
+        <EmptyState icon={PiTimer} title="Set up a test first" body="Create a test type, like a 5 km run, before recording results." action={<Button to="/tests?tab=types" icon={PiPlus}>New test type</Button>} />
       </Card>
     );
   }
@@ -341,7 +341,7 @@ const SingleResult = ({ athletes, testTypes, preselectedAthlete }) => {
                 </li>
               ))}
             </ul>
-            <Link to="/test-results" className="mt-3 inline-block text-[14px] font-medium text-accent hover:underline">See all results</Link>
+            <Link to="/test-results" className="mt-2 inline-flex min-h-10 items-center text-[14px] font-medium text-accent hover:underline">See all results</Link>
           </Card>
         )}
       </div>
@@ -389,7 +389,7 @@ const Tests = () => {
         title="Performance"
         description={tab === 'types' ? 'The benchmark tests you run with your squad.' : 'Record benchmark results. Pace and speed are calculated for you.'}
         back={fromAthlete && (
-          <Link to={`/athlete/${fromAthlete._id}`} className="inline-flex items-center gap-1.5 self-start text-[14px] text-muted hover:text-ink">
+          <Link to={`/athlete/${fromAthlete._id}`} className="-my-2.5 inline-flex min-h-10 items-center gap-1.5 self-start pr-2 text-[14px] text-muted hover:text-ink">
             <PiArrowLeft className="h-4 w-4" aria-hidden="true" />{fromAthlete.name}
           </Link>
         )}

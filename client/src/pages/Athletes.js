@@ -106,6 +106,7 @@ const Athletes = () => {
           value={archived ? 'archived' : 'active'}
           onChange={setArchived}
           options={[{ value: 'active', label: 'Active' }, { value: 'archived', label: 'Archived' }]}
+          className="self-start sm:self-auto"
         />
       </div>
 

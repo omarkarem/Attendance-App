@@ -56,7 +56,7 @@ const AthletePicker = ({ athletes, selected, onChange, sources = [], className, 
           <span className="ml-auto text-[12px] text-muted">{selected.size} selected</span>
         )}
       </div>
-      <div className={cx('-mx-2 flex flex-col gap-0.5 overflow-y-auto', maxHeight)}>
+      <div className={cx('-mx-2 flex flex-col gap-0.5 overflow-y-auto overscroll-contain', maxHeight)}>
         {athletes === null ? (
           [0, 1, 2, 3].map((i) => <Skeleton key={i} className="mx-2 h-11" />)
         ) : filtered.length === 0 ? (

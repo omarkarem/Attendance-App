@@ -48,7 +48,7 @@ const EnrollDialog = ({ open, onClose, athlete, schedules, onEnroll }) => {
           icon={PiRepeat}
           title="Nothing to add"
           body={`${athlete.name} is already on every template, or you have not created one yet.`}
-          action={<Link to="/sessions?view=templates" onClick={onClose}><Button variant="secondary">Manage templates</Button></Link>}
+          action={<Button to="/sessions?view=templates" onClick={onClose} variant="secondary">Manage templates</Button>}
           className="py-6"
         />
       ) : (
@@ -210,7 +210,7 @@ const AthleteProfile = () => {
 
   return (
     <div className="flex flex-col gap-6">
-      <Link to="/athletes" className="inline-flex items-center gap-1.5 self-start text-[14px] text-muted hover:text-ink">
+      <Link to="/athletes" className="-my-2.5 inline-flex min-h-10 items-center gap-1.5 self-start pr-2 text-[14px] text-muted hover:text-ink">
         <PiArrowLeft className="h-4 w-4" aria-hidden="true" />Athletes
       </Link>
 
@@ -230,7 +230,7 @@ const AthleteProfile = () => {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Link to={`/tests?athleteId=${id}`}><Button icon={PiTimer}>Record test</Button></Link>
+            <Button to={`/tests?athleteId=${id}`} icon={PiTimer}>Record test</Button>
             <Menu
               label="Athlete actions"
               triggerVariant="translucent"
@@ -325,7 +325,7 @@ const AthleteProfile = () => {
         <CardHeader
           title="Performance"
           description={selectedType ? `${metric.label}${metric.unit ? ` in ${metric.unit}` : ''}, ${metric.lowerIsBetter ? 'lower' : 'higher'} is better` : 'Benchmark results over time'}
-          actions={<Link to={`/tests?athleteId=${id}`}><Button size="sm" variant="secondary" icon={PiTimer}>Record test</Button></Link>}
+          actions={<Button to={`/tests?athleteId=${id}`} size="sm" variant="secondary" icon={PiTimer}>Record test</Button>}
         />
         {testTypes.length === 0 ? (
           <EmptyState icon={PiTrophy} title="No tests recorded" body={`Record a benchmark to start tracking ${athlete.name}'s progress.`} className="py-10" />
@@ -415,7 +415,7 @@ const AthleteProfile = () => {
               );
             })}
           </ul>
-          <Link to="/test-results" className="mt-2 inline-block text-[14px] font-medium text-accent hover:underline">Edit results</Link>
+          <Link to="/test-results" className="mt-1 inline-flex min-h-10 items-center text-[14px] font-medium text-accent hover:underline">Edit results</Link>
         </Card>
       )}
 

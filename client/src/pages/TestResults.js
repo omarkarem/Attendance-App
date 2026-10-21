@@ -156,7 +156,7 @@ const TestResults = () => {
 
   return (
     <>
-      <PageHeader title="Performance" description="Every recorded test, newest first." actions={<Link to="/tests"><Button icon={PiPlus}>Record test</Button></Link>}>
+      <PageHeader title="Performance" description="Every recorded test, newest first." actions={<Button to="/tests" icon={PiPlus}>Record test</Button>}>
         <PerformanceTabs />
       </PageHeader>
 
@@ -167,6 +167,7 @@ const TestResults = () => {
           value={category}
           onChange={(v) => { setCategory(v); setTypeId(''); }}
           options={[{ value: 'All', label: 'All' }, ...CATEGORIES.map((c) => ({ value: c, label: categoryMeta(c).short, icon: categoryMeta(c).Icon }))]}
+          className="self-start lg:self-auto"
         />
         <Select value={typeId} onChange={(e) => setTypeId(e.target.value)} aria-label="Filter by test" className="lg:w-56">
           <option value="">All tests</option>
@@ -184,7 +185,7 @@ const TestResults = () => {
             icon={PiChartLineUp}
             title={results.length ? 'No results match these filters' : 'No results yet'}
             body={results.length ? 'Try another sport or clear the search.' : 'Recorded tests show up here with pace and speed worked out.'}
-            action={results.length ? <Button variant="secondary" onClick={() => { setSearch(''); setCategory('All'); setTypeId(''); }}>Clear filters</Button> : <Link to="/tests"><Button icon={PiPlus}>Record a test</Button></Link>}
+            action={results.length ? <Button variant="secondary" onClick={() => { setSearch(''); setCategory('All'); setTypeId(''); }}>Clear filters</Button> : <Button to="/tests" icon={PiPlus}>Record a test</Button>}
           />
         </Card>
       ) : (

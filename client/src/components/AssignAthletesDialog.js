@@ -55,7 +55,8 @@ const AssignAthletesDialog = ({ open, onClose, title, description, initialIds = 
       )}
     >
       <p className="mb-3 text-[12px] text-muted">Leave everyone unselected to expect the whole roster.</p>
-      <AthletePicker athletes={athletes} selected={selected} onChange={setSelected} sources={sources} />
+      {/* On phones the sheet scrolls as a whole; a second scroll area inside it is hard to use. */}
+      <AthletePicker athletes={athletes} selected={selected} onChange={setSelected} sources={sources} maxHeight="sm:max-h-80" />
     </Dialog>
   );
 };

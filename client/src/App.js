@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate, Outlet, Link } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider } from './context/AuthContext';
 import useAuth from './hooks/useAuth';
@@ -47,7 +47,7 @@ const NotFound = () => {
       icon={PiCompass}
       title="Page not found"
       body="That link does not point to anything in AttendTrack."
-      action={<Link to="/"><Button>Back to Today</Button></Link>}
+      action={<Button to="/">Back to Today</Button>}
       className="py-24"
     />
   );

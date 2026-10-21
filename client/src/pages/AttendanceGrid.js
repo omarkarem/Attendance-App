@@ -102,14 +102,14 @@ const AttendanceGrid = () => {
       <PageHeader
         title="Attendance"
         description="Who came to what, session by session."
-        actions={<Link to="/export"><Button variant="secondary" icon={PiDownloadSimple}>Export</Button></Link>}
+        actions={<Button to="/export" variant="secondary" icon={PiDownloadSimple}>Export</Button>}
       />
 
       <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center">
-        <Segmented label="Period" value={mode} onChange={setMode} options={[{ value: 'month', label: 'Month' }, { value: 'week', label: 'Week' }]} />
+        <Segmented label="Period" value={mode} onChange={setMode} options={[{ value: 'month', label: 'Month' }, { value: 'week', label: 'Week' }]} className="self-start md:self-auto" />
         <DateStepper title={periodTitle} subtitle={periodSub} onPrev={() => step(-1)} onNext={() => step(1)} className="md:w-80" />
         {grid?.hasRosters && (
-          <label className="flex items-center gap-3 text-[14px] text-muted md:ml-auto">
+          <label className="flex min-h-10 cursor-pointer items-center gap-3 self-start text-[14px] text-muted md:ml-auto md:self-auto">
             <Switch checked={expectedOnly} onChange={setExpectedOnly} label="Only athletes expected in this period" />
             Expected only
           </label>
@@ -136,7 +136,7 @@ const AttendanceGrid = () => {
             icon={PiTable}
             title={`No sessions in ${mode === 'month' ? format(anchor, 'MMMM yyyy') : 'this week'}`}
             body="Template sessions appear here automatically from the day each template was created. Add one-off sessions from the Sessions page."
-            action={<Link to="/sessions"><Button variant="secondary">Go to sessions</Button></Link>}
+            action={<Button to="/sessions" variant="secondary">Go to sessions</Button>}
           />
         </Card>
       ) : rows.length === 0 ? (
@@ -153,7 +153,7 @@ const AttendanceGrid = () => {
                       <th key={s._id} scope="col" title={`${s.name}, ${weekday(s)} ${dayNum(s)}${s.time ? ` at ${s.time}` : ''}`} className="sticky top-0 z-[2] min-w-[44px] border-b border-line-soft bg-surface-1 px-1 py-2 text-center font-medium">
                         <span className="block text-[11px] text-muted">{weekday(s).slice(0, 2)}</span>
                         <span className="block text-[14px] tabular-nums text-ink">{dayNum(s)}</span>
-                        {multiplePerDay && nameFilter === 'all' && <span className="mx-auto block max-w-[52px] truncate text-[10px] text-muted">{s.name}</span>}
+                        {multiplePerDay && nameFilter === 'all' && <span className="mx-auto block max-w-[56px] truncate text-[11px] text-muted">{s.name}</span>}
                       </th>
                     ))}
                     <th scope="col" className="sticky right-0 top-0 z-[3] min-w-[84px] border-b border-l border-line-soft bg-surface-1 px-3 py-3 text-right text-[12px] font-medium text-muted">Rate</th>

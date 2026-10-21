@@ -18,15 +18,23 @@ const Menu = ({ items, label = 'More actions', triggerVariant = 'ghost' }) => {
   const menuRef = useRef(null);
   const visible = items.filter((i) => !i.hidden);
 
-  useLayoutEffect(() => {
-    if (!open || !triggerRef.current) return;
+  // Places the menu next to its trigger; returns false once the trigger has scrolled away.
+  const placeRef = useRef(() => true);
+  placeRef.current = () => {
+    if (!triggerRef.current) return false;
     const r = triggerRef.current.getBoundingClientRect();
+    if (r.bottom < 0 || r.top > window.innerHeight) return false;
     const height = visible.length * 44 + 12;
     const below = window.innerHeight - r.bottom > height + 8;
     setPos({
       top: below ? r.bottom + 6 : r.top - height - 6,
       left: Math.max(8, Math.min(r.right - MENU_WIDTH, window.innerWidth - MENU_WIDTH - 8))
     });
+    return true;
+  };
+
+  useLayoutEffect(() => {
+    if (open) placeRef.current();
   }, [open, visible.length]);
 
   useEffect(() => {
@@ -45,18 +53,20 @@ const Menu = ({ items, label = 'More actions', triggerVariant = 'ghost' }) => {
         nodes[next]?.focus();
       }
     };
-    const onScroll = () => setOpen(false);
+    // A small scroll (easy to do by accident on a phone) moves the menu with its button;
+    // it only closes once the button is off screen.
+    const onScroll = () => { if (!placeRef.current()) setOpen(false); };
     document.addEventListener('mousedown', onDown);
-    document.addEventListener('touchstart', onDown);
+    document.addEventListener('touchstart', onDown, { passive: true });
     document.addEventListener('keydown', onKey);
     window.addEventListener('resize', onScroll);
-    document.addEventListener('scroll', onScroll, true);
+    document.addEventListener('scroll', onScroll, { capture: true, passive: true });
     return () => {
       document.removeEventListener('mousedown', onDown);
       document.removeEventListener('touchstart', onDown);
       document.removeEventListener('keydown', onKey);
       window.removeEventListener('resize', onScroll);
-      document.removeEventListener('scroll', onScroll, true);
+      document.removeEventListener('scroll', onScroll, { capture: true });
     };
   }, [open]);
 

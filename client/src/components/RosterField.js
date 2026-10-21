@@ -30,7 +30,7 @@ const RosterField = ({ value, onChange, sources = [], hint }) => {
         options={[{ value: 'everyone', label: 'Everyone' }, { value: 'choose', label: value.size ? `Chosen (${value.size})` : 'Choose athletes' }]}
       />
       {mode === 'choose' && (
-        <AthletePicker athletes={athletes} selected={value} onChange={onChange} sources={sources} maxHeight="max-h-64" className="mt-2" />
+        <AthletePicker athletes={athletes} selected={value} onChange={onChange} sources={sources} maxHeight="sm:max-h-64" className="mt-2" />
       )}
     </Field>
   );

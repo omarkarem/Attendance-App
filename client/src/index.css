@@ -23,6 +23,21 @@
     font-feature-settings: 'cv01', 'cv05', 'cv09', 'cv11', 'ss03', 'ss07';
   }
 
+  /* Quick successive taps (checking athletes in) must not trigger double-tap zoom.
+     Pinch-zoom still works. */
+  a,
+  button,
+  input,
+  select,
+  textarea,
+  label,
+  [role='button'],
+  [role='radio'],
+  [role='switch'],
+  [role='menuitem'] {
+    touch-action: manipulation;
+  }
+
   ::selection {
     background: rgba(0, 153, 255, 0.35);
   }

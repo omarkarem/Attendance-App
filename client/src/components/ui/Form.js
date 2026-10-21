@@ -2,8 +2,9 @@ import React, { forwardRef } from 'react';
 import { PiCaretDown, PiCheckBold } from 'react-icons/pi';
 import cx from '../../utils/cx';
 
+// 16px on phones: iOS Safari zooms the page into any field smaller than that.
 const FIELD_BASE =
-  'w-full rounded-md border border-line bg-surface-2 text-[15px] text-ink placeholder:text-muted ' +
+  'w-full rounded-md border border-line bg-surface-2 text-[16px] sm:text-[15px] text-ink placeholder:text-muted ' +
   'transition-[border-color,box-shadow] duration-150 hover:border-[#333] ' +
   'focus:border-accent focus:outline-none focus:ring-[3px] focus:ring-accent/20 ' +
   'disabled:opacity-50 aria-[invalid=true]:border-danger';
@@ -47,7 +48,7 @@ export const Select = forwardRef(({ className, children, size = 'md', ...rest },
   <div className={cx('relative min-w-0', className)}>
     <select
       ref={ref}
-      className={cx(FIELD_BASE, 'appearance-none truncate pl-3.5 pr-9', size === 'sm' ? 'h-9 text-[13px]' : 'h-11')}
+      className={cx(FIELD_BASE, 'appearance-none truncate pl-3.5 pr-9', size === 'sm' ? 'h-10 sm:h-9 sm:!text-[13px]' : 'h-11')}
       {...rest}
     >
       {children}

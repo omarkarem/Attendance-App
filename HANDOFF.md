@@ -370,6 +370,14 @@ Highest impact first.
 - **Sessions/templates**: pick who is expected in the create dialog, or copy a template's roster; typing a template name in a new session copies its time and roster; "Create and take attendance".
 - **Record test → Whole squad**: choose test, date and group once, type each athlete's result (`532` = 5:32, `5:32`, `1:02:05`, `32.45`), Enter moves to the next athlete, live pace plus last result and better/worse arrow, one Save for everyone (`POST /tests/results/bulk`, all or nothing). "One athlete" mode keeps the old form, now with a single time field.
 
+### Mobile fixes (October 21)
+- Inputs are 16px below `sm`, so iOS Safari no longer zooms into fields (`ui/Form.js`).
+- `Dialog`: no text field is focused on open on touch devices (`utils/device.js`), real iOS scroll lock (body pinned, scroll restored), `overscroll-behavior: contain`, and the sheet sits above the on-screen keyboard (`visualViewport`).
+- `touch-action: manipulation` on interactive elements, so quick taps on check-in do not double-tap zoom.
+- `Button` and `IconButton` `sm`, and every `Segmented` item, are 40px tall on phones. `Button` accepts `to` and renders a link; there are no more buttons inside links.
+- `Segmented` hides option icons below `sm`, fades a clipped edge and scrolls the selected option into view. Tab bars no longer stretch full width.
+- Today: removed the empty header gap. Athlete pickers inside popups no longer scroll separately on phones. Row menus follow their button on scroll instead of closing.
+
 ### New endpoints
 | Method | Path | Notes |
 |---|---|---|

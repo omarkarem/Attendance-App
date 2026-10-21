@@ -1,4 +1,5 @@
 import React, { forwardRef } from 'react';
+import { Link } from 'react-router-dom';
 import cx from '../../utils/cx';
 
 // DESIGN.md: every CTA is a pill. Primary = white pill, secondary = charcoal pill.
@@ -10,8 +11,9 @@ const VARIANTS = {
   translucent: 'bg-white/15 text-ink hover:bg-white/25 backdrop-blur'
 };
 
+// Small buttons grow to 40px on phones so they stay easy to hit with a thumb.
 const SIZES = {
-  sm: 'h-9 px-3.5 text-[13px] gap-1.5',
+  sm: 'h-10 sm:h-9 px-3.5 text-[13px] gap-1.5',
   md: 'h-11 px-[18px] text-sm gap-2',
   lg: 'h-12 px-6 text-[15px] gap-2'
 };
@@ -23,6 +25,7 @@ export const Spinner = ({ className }) => (
   />
 );
 
+/** A pill button. With `to` it renders a router link styled as a button (never a button inside a link). */
 const Button = forwardRef(({
   variant = 'primary',
   size = 'md',
@@ -32,27 +35,30 @@ const Button = forwardRef(({
   children,
   type = 'button',
   disabled,
+  to,
   ...rest
-}, ref) => (
-  <button
-    ref={ref}
-    type={type}
-    disabled={disabled || loading}
-    aria-busy={loading || undefined}
-    className={cx(
-      'inline-flex shrink-0 select-none items-center justify-center whitespace-nowrap rounded-pill font-medium tracking-[-0.01em]',
-      'transition-[background-color,color,transform] duration-150 active:scale-[0.98]',
-      'disabled:pointer-events-none disabled:opacity-40',
-      VARIANTS[variant],
-      SIZES[size],
-      className
-    )}
-    {...rest}
-  >
-    {loading ? <Spinner /> : Icon ? <Icon className="h-[18px] w-[18px]" aria-hidden="true" /> : null}
-    {children}
-  </button>
-));
+}, ref) => {
+  const classes = cx(
+    'inline-flex shrink-0 select-none items-center justify-center whitespace-nowrap rounded-pill font-medium tracking-[-0.01em]',
+    'transition-[background-color,color,transform] duration-150 active:scale-[0.98]',
+    'disabled:pointer-events-none disabled:opacity-40',
+    VARIANTS[variant],
+    SIZES[size],
+    className
+  );
+  const content = (
+    <>
+      {loading ? <Spinner /> : Icon ? <Icon className="h-[18px] w-[18px]" aria-hidden="true" /> : null}
+      {children}
+    </>
+  );
+  if (to) return <Link ref={ref} to={to} className={classes} {...rest}>{content}</Link>;
+  return (
+    <button ref={ref} type={type} disabled={disabled || loading} aria-busy={loading || undefined} className={classes} {...rest}>
+      {content}
+    </button>
+  );
+});
 
 export const IconButton = forwardRef(({ icon: Icon, label, variant = 'ghost', size = 'md', className, ...rest }, ref) => (
   <button
@@ -63,7 +69,7 @@ export const IconButton = forwardRef(({ icon: Icon, label, variant = 'ghost', si
     className={cx(
       'inline-flex shrink-0 items-center justify-center rounded-full transition-colors duration-150 active:scale-[0.96]',
       'disabled:pointer-events-none disabled:opacity-40',
-      size === 'sm' ? 'h-9 w-9' : 'h-10 w-10',
+      size === 'sm' ? 'h-10 w-10 sm:h-9 sm:w-9' : 'h-10 w-10',
       VARIANTS[variant],
       className
     )}
