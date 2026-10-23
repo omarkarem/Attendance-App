@@ -66,6 +66,14 @@ export const metricFor = (testType) => {
   return { label: 'Time', unit: '', lowerIsBetter: true, value: (r) => r.time, format: formatTime };
 };
 
+/** Cycling tests are FTP efforts, so average power is the number that matters when it was recorded. */
+export const POWER_METRIC = { label: 'Avg power', unit: 'W', lowerIsBetter: false, value: (r) => (r.avgPower > 0 ? r.avgPower : null), format: (v) => (Number.isFinite(v) ? String(Math.round(v)) : '-') };
+
+/** Like metricFor, but switches cycling to power when any of `results` has it. */
+export const chartMetricFor = (testType, results = []) => (
+  testType?.category === 'Cycling' && results.some((r) => r.avgPower > 0) ? POWER_METRIC : metricFor(testType)
+);
+
 export const formatPace = (distance, time, testType) => {
   if (!distance || !time) return '-';
   const metric = metricFor(typeof testType === 'string' ? { category: testType } : testType);
