@@ -397,3 +397,19 @@ Highest impact first.
 - Deploy the server first. The new client sends `clearAthleteIds` and reads `extraCount`/`recordCount`, while the server still accepts old clients.
 - Section 9 changes: deploy server and client together (the client calls `/athletes/bulk` and `/tests/results/bulk`). No data migration. Existing athletes keep their `joinDate`, so anyone who joined more than 30 days ago loses the New badge on deploy, and the stored `isNewAthlete` flag is ignored.
 - Fonts are bundled, so no Google Fonts request is made at runtime.
+
+---
+
+## 10. Stopwatch (October 23, 2026, branch `stopwatch`)
+
+A coach's stopwatch at `/stopwatch` (sidebar under Coaching, and a bottom tab on phones). Client only; no server changes.
+
+- **Like the iPhone app**: Start / Stop, Lap / Reset, laps newest first with the running lap on top, fastest lap green and slowest red, a digital face and an analog face (seconds dial, 30-minute sub-dial, blue lap hand). Tap the face or the dots to switch; the choice is remembered on the device.
+- **Several stopwatches**: open 1 to 8 at once and add more (up to 24). Each has a name and a color tag ("Lane 1", "1:30 pace", an athlete's name). **Start all** starts every stopped stopwatch on the same timestamp, **Stop all** stops them together, and each one still has its own controls. Reset all and Close are in the overflow menu, with confirmation.
+- **Kept until closed**: state lives in `localStorage` (`attendtrack.stopwatches.<userId>`) as start timestamps, not a ticking counter, so a running stopwatch keeps counting through a refresh, a closed browser or a locked phone. Other open tabs follow along. Closing the stopwatches clears it.
+- While a stopwatch runs, the screen is kept awake (Wake Lock API, where supported), and the nav item shows a green dot.
+- Keyboard on the single-stopwatch view: Space starts and stops, L laps or resets.
+
+Files: `utils/stopwatch.js` (maths, formatting, storage sanitizing; tests in `stopwatch.test.js`), `context/StopwatchContext.js` (state, persistence, tab sync, wake lock), `hooks/useNow.js`, `components/stopwatch/StopwatchParts.js`, `pages/Stopwatch.js`.
+
+Not covered: stopwatches are per device and browser, not synced between a coach's phone and laptop. Saving lap times as test results is a possible next step.

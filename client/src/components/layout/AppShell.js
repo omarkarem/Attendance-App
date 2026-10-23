@@ -5,6 +5,7 @@ import {
   PiCalendarDots, PiCalendarDotsFill,
   PiUsersThree, PiUsersThreeFill,
   PiTable, PiTableFill,
+  PiClockCountdown, PiClockCountdownFill,
   PiTimer, PiTimerFill,
   PiChartLineUp, PiChartLineUpFill,
   PiDownloadSimple, PiDownloadSimpleFill,
@@ -12,6 +13,7 @@ import {
   PiSignOut, PiCheckBold, PiCaretRight
 } from 'react-icons/pi';
 import useAuth from '../../hooks/useAuth';
+import { useStopwatches } from '../../context/StopwatchContext';
 import cx from '../../utils/cx';
 import { Avatar } from '../ui/Display';
 import { IconButton } from '../ui/Button';
@@ -25,7 +27,8 @@ const NAV = [
       { to: '/', label: 'Today', icon: PiHouseSimple, activeIcon: PiHouseSimpleFill, match: ['/'], exact: true },
       { to: '/sessions', label: 'Sessions', icon: PiCalendarDots, activeIcon: PiCalendarDotsFill, match: ['/sessions', '/checkin'] },
       { to: '/athletes', label: 'Athletes', icon: PiUsersThree, activeIcon: PiUsersThreeFill, match: ['/athletes', '/athlete/'] },
-      { to: '/attendance', label: 'Attendance', icon: PiTable, activeIcon: PiTableFill, match: ['/attendance'] }
+      { to: '/attendance', label: 'Attendance', icon: PiTable, activeIcon: PiTableFill, match: ['/attendance'] },
+      { to: '/stopwatch', label: 'Stopwatch', icon: PiClockCountdown, activeIcon: PiClockCountdownFill, match: ['/stopwatch'] }
     ]
   },
   {
@@ -44,6 +47,7 @@ const NAV = [
 ];
 
 const ALL_ITEMS = NAV.flatMap((g) => g.items);
+const byPath = (to) => ALL_ITEMS.find((i) => i.to === to);
 
 const isActive = (item, pathname) =>
   item.exact ? pathname === '/' : item.match.some((m) => pathname === m || pathname.startsWith(m.endsWith('/') ? m : `${m}/`));
@@ -57,7 +61,7 @@ export const Wordmark = ({ className }) => (
   </span>
 );
 
-const Sidebar = ({ pathname, user, onLogout }) => (
+const Sidebar = ({ pathname, user, onLogout, running }) => (
   <aside className="fixed inset-y-0 left-0 z-chrome hidden w-[240px] flex-col border-r border-line-soft bg-canvas md:flex">
     <div className="flex h-16 items-center px-5">
       <NavLink to="/" aria-label="AttendTrack home"><Wordmark /></NavLink>
@@ -80,7 +84,10 @@ const Sidebar = ({ pathname, user, onLogout }) => (
                       active ? 'bg-surface-2 text-ink' : 'text-muted hover:bg-surface-1 hover:text-ink'
                     )}
                   >
-                    <Icon className="h-[18px] w-[18px]" aria-hidden="true" />
+                    <span className="relative">
+                      <Icon className="h-[18px] w-[18px]" aria-hidden="true" />
+                      <RunningDot item={item} running={running} className="-right-0.5 -top-0.5" />
+                    </span>
                     {item.label}
                   </NavLink>
                 </li>
@@ -102,14 +109,20 @@ const Sidebar = ({ pathname, user, onLogout }) => (
 );
 
 const TABS = [
-  ALL_ITEMS[0],
-  ALL_ITEMS[1],
-  ALL_ITEMS[2],
-  { ...ALL_ITEMS[4], label: 'Tests', match: ['/tests', '/test-results'] }
+  byPath('/'),
+  byPath('/sessions'),
+  byPath('/athletes'),
+  { ...byPath('/tests'), label: 'Tests', match: ['/tests', '/test-results'] },
+  byPath('/stopwatch')
 ];
-const MORE_ITEMS = [ALL_ITEMS[3], ALL_ITEMS[5], ALL_ITEMS[6]];
+const MORE_ITEMS = [byPath('/attendance'), byPath('/test-results'), byPath('/export')];
 
-const BottomTabs = ({ pathname, onMore, moreOpen }) => {
+// Green dot on the Stopwatch item while a stopwatch is running elsewhere in the app.
+const RunningDot = ({ item, running, className }) => (item.to === '/stopwatch' && running ? (
+  <span className={cx('absolute h-2 w-2 rounded-full bg-success ring-2 ring-canvas', className)} aria-label="Running" role="img" />
+) : null);
+
+const BottomTabs = ({ pathname, onMore, moreOpen, running }) => {
   const moreActive = moreOpen || MORE_ITEMS.some((i) => isActive(i, pathname) && !TABS.some((t) => isActive(t, pathname)));
   const tabClass = (active) => cx(
     'flex h-full flex-1 flex-col items-center justify-center gap-1 text-[11px] font-medium transition-colors duration-150',
@@ -123,7 +136,10 @@ const BottomTabs = ({ pathname, onMore, moreOpen }) => {
           const Icon = active ? item.activeIcon : item.icon;
           return (
             <NavLink key={item.to} to={item.to} aria-current={active ? 'page' : undefined} className={tabClass(active)}>
-              <Icon className="h-6 w-6" aria-hidden="true" />
+              <span className="relative">
+                <Icon className="h-6 w-6" aria-hidden="true" />
+                <RunningDot item={item} running={running} className="right-0 top-0" />
+              </span>
               {item.label}
             </NavLink>
           );
@@ -187,20 +203,21 @@ const AppShell = ({ children }) => {
   const { user, logout } = useAuth();
   const { pathname } = useLocation();
   const [moreOpen, setMoreOpen] = useState(false);
+  const running = useStopwatches().runningCount > 0;
 
   return (
     <div className="min-h-[100dvh] bg-canvas">
       <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-toast focus:rounded-pill focus:bg-ink focus:px-4 focus:py-2 focus:text-canvas">
         Skip to content
       </a>
-      <Sidebar pathname={pathname} user={user} onLogout={logout} />
+      <Sidebar pathname={pathname} user={user} onLogout={logout} running={running} />
       <TopBar onMenu={() => setMoreOpen(true)} user={user} />
       <main id="main" className="md:pl-[240px]">
         <div className="mx-auto w-full max-w-[1120px] px-4 pb-[calc(6rem+env(safe-area-inset-bottom))] pt-6 sm:px-6 md:pb-16 md:pt-10 lg:px-10">
           {children}
         </div>
       </main>
-      <BottomTabs pathname={pathname} onMore={() => setMoreOpen(true)} moreOpen={moreOpen} />
+      <BottomTabs pathname={pathname} onMore={() => setMoreOpen(true)} moreOpen={moreOpen} running={running} />
       <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} user={user} onLogout={logout} pathname={pathname} />
     </div>
   );
