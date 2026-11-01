@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { PiMagnifyingGlass, PiPencilSimple, PiTrash, PiChartLineUp, PiWarningCircle, PiLightning, PiHeartbeat, PiGauge, PiPlus } from 'react-icons/pi';
+import { PiMagnifyingGlass, PiPencilSimple, PiTrash, PiChartLineUp, PiWarningCircle, PiPlus } from 'react-icons/pi';
 import api from '../utils/api';
 import usePageTitle from '../hooks/usePageTitle';
 import { apiError } from '../utils/browser';
@@ -13,22 +13,10 @@ import { Input, Select } from '../components/ui/Form';
 import { Segmented } from '../components/ui/Segmented';
 import { useConfirm } from '../components/ui/ConfirmProvider';
 import PerformanceTabs from '../components/PerformanceTabs';
-import ResultFields, { formFromResult, validateResult, buildPayload, ResultPreview } from '../components/ResultFields';
+import ResultFields, { formFromResult, validateResult, buildPayload, ResultPreview, CyclingMeta } from '../components/ResultFields';
 import { CATEGORIES, categoryMeta, formatDistance, formatTime, formatPace, formatResultDate, lineageOf, versionLabel } from '../utils/performance';
 
 const PAGE = 40;
-
-const CyclingMeta = ({ r }) => {
-  if (r.testType?.category !== 'Cycling' || (r.avgPower == null && r.avgCadence == null && r.avgHeartRate == null)) return null;
-  return (
-    <span className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[12px] text-muted">
-      {r.avgPower != null && <span className="inline-flex items-center gap-1"><PiLightning className="h-3.5 w-3.5" aria-hidden="true" />{r.avgPower} W{r.maxPower ? `, max ${r.maxPower}` : ''}</span>}
-      {r.avgPower != null && r.weight ? <span className="tabular-nums">{(r.avgPower / r.weight).toFixed(2)} W/kg</span> : null}
-      {r.avgCadence != null && <span className="inline-flex items-center gap-1"><PiGauge className="h-3.5 w-3.5" aria-hidden="true" />{r.avgCadence} rpm</span>}
-      {r.avgHeartRate != null && <span className="inline-flex items-center gap-1"><PiHeartbeat className="h-3.5 w-3.5" aria-hidden="true" />{r.avgHeartRate} bpm</span>}
-    </span>
-  );
-};
 
 const EditResultDialog = ({ result, onClose, athletes, testTypes, onSaved }) => {
   const [form, setForm] = useState(null);

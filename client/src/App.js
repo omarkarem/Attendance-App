@@ -19,6 +19,8 @@ import Export from './pages/Export';
 import Tests from './pages/Tests';
 import TestResults from './pages/TestResults';
 import AthleteProfile from './pages/AthleteProfile';
+import AccessPending from './pages/AccessPending';
+import Accounts from './pages/Accounts';
 import { PiCompass } from 'react-icons/pi';
 
 const BootScreen = () => (
@@ -28,10 +30,16 @@ const BootScreen = () => (
 );
 
 const ProtectedLayout = () => {
-  const { isAuthenticated, loading } = useAuth();
+  const { isAuthenticated, hasAccess, loading } = useAuth();
   if (loading) return <BootScreen />;
   if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (!hasAccess) return <AccessPending />;
   return <AppShell><Outlet /></AppShell>;
+};
+
+const AdminOnly = () => {
+  const { isAdmin } = useAuth();
+  return isAdmin ? <Outlet /> : <NotFound />;
 };
 
 const PublicOnly = () => {
@@ -91,6 +99,9 @@ function App() {
               <Route path="/test-results" element={<TestResults />} />
               <Route path="/attendance" element={<AttendanceGrid />} />
               <Route path="/export" element={<Export />} />
+              <Route element={<AdminOnly />}>
+                <Route path="/admin/accounts" element={<Accounts />} />
+              </Route>
               <Route path="*" element={<NotFound />} />
             </Route>
           </Routes>

@@ -2,6 +2,7 @@ const express = require('express');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const auth = require('../middleware/auth');
+const { isBootstrapAdmin, syncBootstrapAdmin, publicUser } = require('../utils/admin');
 
 const router = express.Router();
 
@@ -11,6 +12,14 @@ const generateToken = (userId) => {
     expiresIn: '30d'
   });
 };
+
+// Admins also get the number of accounts waiting for access, for the nav badge.
+const userPayload = async (user) => ({
+  ...publicUser(user),
+  ...(user.role === 'admin' && user.status === 'active'
+    ? { pendingCount: await User.countDocuments({ status: 'pending' }) }
+    : {})
+});
 
 // POST /api/auth/signup
 router.post('/signup', async (req, res) => {
@@ -28,8 +37,16 @@ router.post('/signup', async (req, res) => {
       return res.status(400).json({ message: 'An account with this email already exists.' });
     }
 
-    // Create user
-    const user = await User.create({ name, email, password });
+    // New accounts wait for an admin to give them access (bootstrap admins excepted).
+    const admin = isBootstrapAdmin(email);
+    const user = await User.create({
+      name,
+      email,
+      password,
+      role: admin ? 'admin' : 'coach',
+      status: admin ? 'active' : 'pending',
+      statusChangedAt: new Date()
+    });
 
     // Generate token
     const token = generateToken(user._id);
@@ -43,11 +60,7 @@ router.post('/signup', async (req, res) => {
     });
 
     res.status(201).json({
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email
-      },
+      user: await userPayload(user),
       token
     });
   } catch (error) {
@@ -80,6 +93,8 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ message: 'Invalid email or password.' });
     }
 
+    await syncBootstrapAdmin(user);
+
     // Generate token
     const token = generateToken(user._id);
 
@@ -91,12 +106,9 @@ router.post('/login', async (req, res) => {
       maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
     });
 
+    // Pending and revoked accounts still sign in; the client shows them their status.
     res.json({
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email
-      },
+      user: await userPayload(user),
       token
     });
   } catch (error) {
@@ -114,15 +126,9 @@ router.post('/logout', (req, res) => {
 });
 
 // GET /api/auth/me
-router.get('/me', auth, async (req, res) => {
+router.get('/me', auth.allowInactive, async (req, res) => {
   try {
-    res.json({
-      user: {
-        id: req.user._id,
-        name: req.user.name,
-        email: req.user.email
-      }
-    });
+    res.json({ user: await userPayload(req.user) });
   } catch (error) {
     res.status(500).json({ message: 'Server error.' });
   }

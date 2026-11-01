@@ -105,6 +105,22 @@ const CyclingFields = ({ form, set }) => (
   </fieldset>
 );
 
+/** Every cycling value recorded on a result, as a compact line. Power leads. */
+export const CyclingMeta = ({ r, className = 'mt-1' }) => {
+  const has = (k) => r[k] != null;
+  if (r.testType?.category !== 'Cycling' || !CYCLING_FIELDS.some(has)) return null;
+  const range = (avg, max, unit) => (has(avg) ? `${r[avg]}${has(max) ? ` / ${r[max]}` : ''} ${unit}` : `max ${r[max]} ${unit}`);
+  return (
+    <span className={`flex flex-wrap gap-x-3 gap-y-1 text-[12px] text-muted tabular-nums ${className}`}>
+      {(has('avgPower') || has('maxPower')) && <span className="inline-flex items-center gap-1 font-medium text-ink"><PiLightning className="h-3.5 w-3.5" aria-hidden="true" />{has('avgPower') ? `${r.avgPower} W` : ''}{has('maxPower') ? `${has('avgPower') ? ', ' : ''}max ${r.maxPower} W` : ''}</span>}
+      {r.avgPower > 0 && r.weight > 0 && <span>{(r.avgPower / r.weight).toFixed(2)} W/kg</span>}
+      {(has('avgCadence') || has('maxCadence')) && <span className="inline-flex items-center gap-1"><PiGauge className="h-3.5 w-3.5" aria-hidden="true" />{range('avgCadence', 'maxCadence', 'rpm')}</span>}
+      {(has('avgHeartRate') || has('maxHeartRate')) && <span className="inline-flex items-center gap-1"><PiHeartbeat className="h-3.5 w-3.5" aria-hidden="true" />{range('avgHeartRate', 'maxHeartRate', 'bpm')}</span>}
+      {has('weight') && <span className="inline-flex items-center gap-1"><PiBarbell className="h-3.5 w-3.5" aria-hidden="true" />{r.weight} kg</span>}
+    </span>
+  );
+};
+
 /** Shown when the chosen date falls under an older definition of the test. */
 export const VersionNotice = ({ version, className }) => {
   if (!version || version.isCurrent !== false) return null;

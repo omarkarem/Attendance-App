@@ -38,6 +38,12 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    // Access granted or revoked by an admin since the page loaded: let AuthContext
+    // pick up the new status so the app swaps to the access screen.
+    const code = error.response?.data?.code;
+    if (error.response?.status === 403 && (code === 'ACCOUNT_PENDING' || code === 'ACCOUNT_REVOKED')) {
+      window.dispatchEvent(new CustomEvent('auth:status', { detail: error.response.data.status }));
+    }
     if (error.response && error.response.status === 401) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');

@@ -42,7 +42,7 @@ const Signup = () => {
   return (
     <AuthLayout
       title="Create your coach account"
-      subtitle="Set up your roster and start tracking in a few minutes."
+      subtitle="An admin approves new accounts. Once you are in, set up your roster and start tracking."
       footer={<>Already have an account? <Link to="/login" className="font-medium text-accent hover:underline">Sign in</Link></>}
     >
       <form onSubmit={handleSubmit} className="flex flex-col gap-5" noValidate>

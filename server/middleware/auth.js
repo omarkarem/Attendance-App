@@ -1,7 +1,15 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const { syncBootstrapAdmin } = require('../utils/admin');
 
-const auth = async (req, res, next) => {
+const ACCOUNT_BLOCKED = {
+  pending: { code: 'ACCOUNT_PENDING', message: 'Your account is waiting for an admin to give it access.' },
+  revoked: { code: 'ACCOUNT_REVOKED', message: 'Your access to AttendTrack has been revoked.' }
+};
+
+// allowInactive lets pending and revoked accounts through (only /auth/me uses it,
+// so the client can show them where they stand).
+const authenticate = ({ allowInactive = false } = {}) => async (req, res, next) => {
   try {
     let token;
 
@@ -27,6 +35,14 @@ const auth = async (req, res, next) => {
       return res.status(401).json({ message: 'User no longer exists.' });
     }
 
+    await syncBootstrapAdmin(user);
+
+    // Checked on every request, so granting or revoking access takes effect at once.
+    if (!allowInactive && user.status !== 'active') {
+      const blocked = ACCOUNT_BLOCKED[user.status] || ACCOUNT_BLOCKED.pending;
+      return res.status(403).json({ ...blocked, status: user.status });
+    }
+
     req.user = user;
     next();
   } catch (error) {
@@ -38,6 +54,17 @@ const auth = async (req, res, next) => {
     }
     return res.status(500).json({ message: 'Authentication error.' });
   }
+};
+
+const auth = authenticate();
+auth.allowInactive = authenticate({ allowInactive: true });
+
+// Use after auth.
+auth.requireAdmin = (req, res, next) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ message: 'Only admins can do that.' });
+  }
+  next();
 };
 
 module.exports = auth;

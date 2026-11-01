@@ -17,7 +17,8 @@ import { Segmented } from '../components/ui/Segmented';
 import { useConfirm } from '../components/ui/ConfirmProvider';
 import { AXIS, GRID, ChartTooltip, ChartFrame } from '../components/ui/Chart';
 import AthleteFormDialog from '../components/AthleteFormDialog';
-import { CATEGORIES, categoryMeta, metricFor, formatDistance, formatTime, formatPace, formatResultDate, versionLabel } from '../utils/performance';
+import { CyclingMeta } from '../components/ResultFields';
+import { CATEGORIES, categoryMeta, chartMetricFor, formatDistance, formatTime, formatPace, formatResultDate, versionLabel } from '../utils/performance';
 import cx from '../utils/cx';
 
 const EnrollDialog = ({ open, onClose, athlete, schedules, onEnroll }) => {
@@ -117,7 +118,10 @@ const AthleteProfile = () => {
   }, [profile]);
 
   const selectedType = testTypes.find((t) => t._id === typeId);
-  const metric = useMemo(() => metricFor(selectedType), [selectedType]);
+  const metric = useMemo(
+    () => chartMetricFor(selectedType, (profile?.testResults || []).filter((r) => r.testType?._id === typeId)),
+    [selectedType, profile, typeId]
+  );
 
   const series = useMemo(() => {
     if (!profile || !selectedType) return [];
@@ -366,6 +370,7 @@ const AthleteProfile = () => {
                             <p className="text-muted">{formatResultDate(d.date)}</p>
                             <p className="font-semibold">{metric.format(d.value)}{metric.unit && ` ${metric.unit}`}</p>
                             <p className="text-muted">{formatDistance(d.distance)} in {formatTime(d.time)}</p>
+                            {metric.unit === 'W' && <p className="text-muted">{formatPace(d.distance, d.time, d.testType)}</p>}
                           </>
                         )} />}
                       />
@@ -399,6 +404,8 @@ const AthleteProfile = () => {
           <ul className="mt-4 flex flex-col divide-y divide-line-soft">
             {history.map((r) => {
               const { Icon } = categoryMeta(r.testType?.category);
+              // FTP results lead with power; speed moves to the detail line.
+              const power = r.testType?.category === 'Cycling' && r.avgPower > 0;
               return (
                 <li key={r._id} className="flex items-start gap-3 py-3">
                   <span className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-2"><Icon className="h-[18px] w-[18px]" aria-hidden="true" /></span>
@@ -407,10 +414,14 @@ const AthleteProfile = () => {
                       {r.testType?.title || 'Deleted test'}
                       {versionLabel(r.testType) && <span className="font-normal text-muted"> · {versionLabel(r.testType)}</span>}
                     </p>
-                    <p className="text-[13px] text-muted">{formatResultDate(r.date)} · {formatDistance(r.distance)} in {formatTime(r.time)}</p>
+                    <p className="text-[13px] text-muted">
+                      {formatResultDate(r.date)} · {formatDistance(r.distance)} in {formatTime(r.time)}
+                      {power && ` · ${formatPace(r.distance, r.time, r.testType)}`}
+                    </p>
+                    <CyclingMeta r={r} />
                     {r.description && <p className="mt-1 text-[13px] text-muted">{r.description}</p>}
                   </div>
-                  <span className="shrink-0 pt-0.5 text-[14px] font-semibold tabular-nums">{formatPace(r.distance, r.time, r.testType)}</span>
+                  <span className="shrink-0 pt-0.5 text-[14px] font-semibold tabular-nums">{power ? `${r.avgPower} W` : formatPace(r.distance, r.time, r.testType)}</span>
                 </li>
               );
             })}
