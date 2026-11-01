@@ -30,6 +30,21 @@ export const AuthProvider = ({ children }) => {
     checkAuth();
   }, []);
 
+  // A request was refused because the account lost (or never had) access.
+  useEffect(() => {
+    const onStatus = (e) => setUser((u) => (u && u.status !== e.detail ? { ...u, status: e.detail } : u));
+    window.addEventListener('auth:status', onStatus);
+    return () => window.removeEventListener('auth:status', onStatus);
+  }, []);
+
+  // Re-reads the account, e.g. to see whether an admin has granted access yet.
+  const refreshUser = useCallback(async () => {
+    const { data } = await api.get('/auth/me');
+    localStorage.setItem('user', JSON.stringify(data.user));
+    setUser(data.user);
+    return data.user;
+  }, []);
+
   const login = useCallback(async (email, password) => {
     const { data } = await api.post('/auth/login', { email, password });
     localStorage.setItem('token', data.token);
@@ -63,7 +78,10 @@ export const AuthProvider = ({ children }) => {
     login,
     signup,
     logout,
-    isAuthenticated: !!user
+    refreshUser,
+    isAuthenticated: !!user,
+    hasAccess: user?.status === 'active',
+    isAdmin: user?.role === 'admin' && user?.status === 'active'
   };
 
   return (

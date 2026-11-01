@@ -9,6 +9,7 @@ import {
   PiChartLineUp, PiChartLineUpFill,
   PiDownloadSimple, PiDownloadSimpleFill,
   PiSquaresFour, PiSquaresFourFill,
+  PiShieldCheck, PiShieldCheckFill,
   PiSignOut, PiCheckBold, PiCaretRight
 } from 'react-icons/pi';
 import useAuth from '../../hooks/useAuth';
@@ -45,6 +46,16 @@ const NAV = [
 
 const ALL_ITEMS = NAV.flatMap((g) => g.items);
 
+// Only admins see this group. `badge` is filled in with the number of accounts waiting.
+const ADMIN_ITEM = { to: '/admin/accounts', label: 'Accounts', icon: PiShieldCheck, activeIcon: PiShieldCheckFill, match: ['/admin'], admin: true };
+const ADMIN_GROUP = { group: 'Admin', items: [ADMIN_ITEM] };
+
+const CountBadge = ({ count }) => (count > 0 ? (
+  <span className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-pill bg-accent px-1.5 text-[11px] font-semibold tabular-nums text-canvas" aria-label={`${count} waiting`}>
+    {count}
+  </span>
+) : null);
+
 const isActive = (item, pathname) =>
   item.exact ? pathname === '/' : item.match.some((m) => pathname === m || pathname.startsWith(m.endsWith('/') ? m : `${m}/`));
 
@@ -57,13 +68,13 @@ export const Wordmark = ({ className }) => (
   </span>
 );
 
-const Sidebar = ({ pathname, user, onLogout }) => (
+const Sidebar = ({ pathname, user, isAdmin, onLogout }) => (
   <aside className="fixed inset-y-0 left-0 z-chrome hidden w-[240px] flex-col border-r border-line-soft bg-canvas md:flex">
     <div className="flex h-16 items-center px-5">
       <NavLink to="/" aria-label="AttendTrack home"><Wordmark /></NavLink>
     </div>
     <nav aria-label="Main" className="flex-1 overflow-y-auto px-3 pb-4">
-      {NAV.map((group) => (
+      {(isAdmin ? [...NAV, ADMIN_GROUP] : NAV).map((group) => (
         <div key={group.group} className="mt-5 first:mt-2">
           <p className="px-3 pb-2 text-[12px] font-medium text-muted">{group.group}</p>
           <ul className="flex flex-col gap-0.5">
@@ -82,6 +93,7 @@ const Sidebar = ({ pathname, user, onLogout }) => (
                   >
                     <Icon className="h-[18px] w-[18px]" aria-hidden="true" />
                     {item.label}
+                    {item.admin && <CountBadge count={user?.pendingCount} />}
                   </NavLink>
                 </li>
               );
@@ -109,8 +121,9 @@ const TABS = [
 ];
 const MORE_ITEMS = [ALL_ITEMS[3], ALL_ITEMS[5], ALL_ITEMS[6]];
 
-const BottomTabs = ({ pathname, onMore, moreOpen }) => {
-  const moreActive = moreOpen || MORE_ITEMS.some((i) => isActive(i, pathname) && !TABS.some((t) => isActive(t, pathname)));
+const BottomTabs = ({ pathname, onMore, moreOpen, isAdmin, pending }) => {
+  const moreItems = isAdmin ? [...MORE_ITEMS, ADMIN_ITEM] : MORE_ITEMS;
+  const moreActive = moreOpen || moreItems.some((i) => isActive(i, pathname) && !TABS.some((t) => isActive(t, pathname)));
   const tabClass = (active) => cx(
     'flex h-full flex-1 flex-col items-center justify-center gap-1 text-[11px] font-medium transition-colors duration-150',
     active ? 'text-ink' : 'text-muted'
@@ -129,21 +142,25 @@ const BottomTabs = ({ pathname, onMore, moreOpen }) => {
           );
         })}
         <button type="button" onClick={onMore} className={tabClass(moreActive)} aria-haspopup="dialog" aria-expanded={moreOpen}>
-          {moreActive ? <PiSquaresFourFill className="h-6 w-6" aria-hidden="true" /> : <PiSquaresFour className="h-6 w-6" aria-hidden="true" />}
+          <span className="relative">
+            {moreActive ? <PiSquaresFourFill className="h-6 w-6" aria-hidden="true" /> : <PiSquaresFour className="h-6 w-6" aria-hidden="true" />}
+            {isAdmin && pending > 0 && <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-accent ring-2 ring-canvas" aria-hidden="true" />}
+          </span>
           More
+          {isAdmin && pending > 0 && <span className="sr-only">, {pending} accounts waiting</span>}
         </button>
       </div>
     </nav>
   );
 };
 
-const MoreSheet = ({ open, onClose, user, onLogout, pathname }) => {
+const MoreSheet = ({ open, onClose, user, isAdmin, onLogout, pathname }) => {
   const navigate = useNavigate();
   const go = (to) => { onClose(); navigate(to); };
   return (
     <Dialog open={open} onClose={onClose} title="More" size="sm">
       <div className="-mx-2 flex flex-col">
-        {MORE_ITEMS.map((item) => {
+        {(isAdmin ? [...MORE_ITEMS, ADMIN_ITEM] : MORE_ITEMS).map((item) => {
           const active = isActive(item, pathname);
           return (
             <button
@@ -154,6 +171,7 @@ const MoreSheet = ({ open, onClose, user, onLogout, pathname }) => {
             >
               <item.icon className="h-5 w-5 text-muted" aria-hidden="true" />
               <span className="flex-1">{item.label}</span>
+              {item.admin && <CountBadge count={user?.pendingCount} />}
               <PiCaretRight className="h-4 w-4 text-muted" aria-hidden="true" />
             </button>
           );
@@ -184,7 +202,7 @@ const TopBar = ({ onMenu, user }) => (
 );
 
 const AppShell = ({ children }) => {
-  const { user, logout } = useAuth();
+  const { user, isAdmin, logout } = useAuth();
   const { pathname } = useLocation();
   const [moreOpen, setMoreOpen] = useState(false);
 
@@ -193,15 +211,15 @@ const AppShell = ({ children }) => {
       <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-toast focus:rounded-pill focus:bg-ink focus:px-4 focus:py-2 focus:text-canvas">
         Skip to content
       </a>
-      <Sidebar pathname={pathname} user={user} onLogout={logout} />
+      <Sidebar pathname={pathname} user={user} isAdmin={isAdmin} onLogout={logout} />
       <TopBar onMenu={() => setMoreOpen(true)} user={user} />
       <main id="main" className="md:pl-[240px]">
         <div className="mx-auto w-full max-w-[1120px] px-4 pb-[calc(6rem+env(safe-area-inset-bottom))] pt-6 sm:px-6 md:pb-16 md:pt-10 lg:px-10">
           {children}
         </div>
       </main>
-      <BottomTabs pathname={pathname} onMore={() => setMoreOpen(true)} moreOpen={moreOpen} />
-      <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} user={user} onLogout={logout} pathname={pathname} />
+      <BottomTabs pathname={pathname} onMore={() => setMoreOpen(true)} moreOpen={moreOpen} isAdmin={isAdmin} pending={user?.pendingCount} />
+      <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} user={user} isAdmin={isAdmin} onLogout={logout} pathname={pathname} />
     </div>
   );
 };

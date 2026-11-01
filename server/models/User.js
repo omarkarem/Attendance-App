@@ -22,6 +22,21 @@ const userSchema = new mongoose.Schema({
     required: [true, 'Password is required'],
     minlength: [6, 'Password must be at least 6 characters'],
     select: false
+  },
+  role: {
+    type: String,
+    enum: ['coach', 'admin'],
+    default: 'coach'
+  },
+  // Accounts created before access control have no status, so the default keeps them
+  // working. Signup sets 'pending' explicitly; an admin moves it to 'active' or 'revoked'.
+  status: {
+    type: String,
+    enum: ['pending', 'active', 'revoked'],
+    default: 'active'
+  },
+  statusChangedAt: {
+    type: Date
   }
 }, {
   timestamps: true

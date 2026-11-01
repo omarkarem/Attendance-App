@@ -33,6 +33,7 @@ JWT_SECRET=<long random string>
 PORT=5000
 CLIENT_URL=http://localhost:3000
 CRON_SECRET=<long random string>   # optional; enables /api/cron/generate
+ADMIN_EMAILS=you@example.com       # comma-separated; these accounts are always admins
 ```
 
 ```bash
@@ -86,6 +87,13 @@ server
 - Sign up (name, email, password of 6+ characters) and sign in. JWT valid for 30 days, kept in `localStorage`, plus an httpOnly cookie.
 - `/auth/me` restores the session on load. Any 401 clears the token and sends the user to `/login`.
 - Sign out lives in the desktop sidebar footer and in the mobile More sheet.
+
+### Account access (`/admin/accounts`)
+- New sign-ups are **pending**: they can sign in but only see a "Waiting for access" screen (it re-checks every 30 s and opens the app once approved). Every API route except `/auth/me` returns `403 ACCOUNT_PENDING` / `ACCOUNT_REVOKED` for them.
+- Accounts created before access control have no `status` and count as active, so nobody already using the app is locked out.
+- Admins see an **Admin > Accounts** page with Waiting / Active / Revoked tabs: approve or decline (deletes the pending account), revoke or restore access (takes effect on the next request; data is kept), make or remove admin. The nav shows a badge with the number waiting.
+- The first admin comes from `ADMIN_EMAILS` on the server: those accounts are promoted and activated on their next request and cannot be demoted or revoked from the app. Admins cannot change their own account.
+- API: `GET /api/admin/users`, `PATCH /api/admin/users/:id` (`{ status: 'active' | 'revoked' }` and/or `{ role: 'coach' | 'admin' }`), `DELETE /api/admin/users/:id` (pending only).
 
 ### Today (`/`)
 - Today's sessions in a gradient card, each with Check in or Review and live counts ("3 of 6 present +1 extra").
