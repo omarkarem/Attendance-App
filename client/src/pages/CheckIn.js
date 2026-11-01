@@ -1,331 +1,410 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import api from '../utils/api';
-import toast from 'react-hot-toast';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { format } from 'date-fns';
+import toast from 'react-hot-toast';
 import {
-  HiOutlineArrowLeft,
-  HiOutlineCheckCircle,
-  HiOutlineSparkles,
-  HiOutlineMagnifyingGlass,
-  HiOutlineDocumentDuplicate
-} from 'react-icons/hi2';
+  PiArrowLeft, PiMagnifyingGlass, PiCopySimple, PiCheckBold, PiChecks, PiEraser, PiWarningCircle, PiUsersThree,
+  PiUserPlus, PiCloudCheck, PiArrowClockwise
+} from 'react-icons/pi';
+import api from '../utils/api';
+import usePageTitle from '../hooks/usePageTitle';
+import { apiError, copyText } from '../utils/browser';
+import { joinedBy, todayKey } from '../utils/athletes';
+import { Card, Avatar, Badge, Skeleton, EmptyState } from '../components/ui/Display';
+import Button, { IconButton, Spinner } from '../components/ui/Button';
+import { Input } from '../components/ui/Form';
+import { Segmented } from '../components/ui/Segmented';
+import Menu from '../components/ui/Menu';
+import { useConfirm } from '../components/ui/ConfirmProvider';
+import cx from '../utils/cx';
+
+// Taps are batched and saved shortly after the last one.
+const SAVE_DELAY = 600;
+
+// Comparable form of the shown state, to know whether anything is left to save.
+const snapshotOf = (athletes, map) => JSON.stringify(athletes.map((a) => [a._id, !!map[a._id]]));
+
+const AthleteToggle = ({ athlete, present, note, onToggle }) => (
+  <button
+    type="button"
+    aria-pressed={present}
+    onClick={onToggle}
+    className={cx(
+      'flex min-h-[64px] w-full items-center gap-3 rounded-lg px-3.5 py-2.5 text-left transition-[background-color,transform] duration-150 active:scale-[0.99]',
+      present ? 'bg-surface-2 shadow-edge' : 'bg-surface-1 hover:bg-surface-2/70'
+    )}
+  >
+    <Avatar name={athlete.name} active={present} />
+    <span className="min-w-0 flex-1">
+      <span className="flex items-center gap-2">
+        <span className={cx('truncate text-[15px] font-medium', !present && 'text-ink/80')}>{athlete.name}</span>
+        {athlete.isNewAthlete && <Badge tone="new">New</Badge>}
+      </span>
+      {note && <span className="text-[12px] text-muted">{note}</span>}
+    </span>
+    <span
+      className={cx(
+        'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-pill px-3 text-[13px] font-semibold transition-colors',
+        present ? 'bg-success/15 text-success' : 'bg-surface-2 text-muted'
+      )}
+    >
+      {present && <PiCheckBold className="h-3.5 w-3.5" aria-hidden="true" />}
+      {present ? 'Present' : 'Absent'}
+    </span>
+  </button>
+);
 
 const CheckIn = () => {
   const { sessionId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const confirm = useConfirm();
+
   const [session, setSession] = useState(null);
   const [athletes, setAthletes] = useState([]);
-  const [attendance, setAttendance] = useState({}); // { athleteId: true/false }
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [present, setPresent] = useState({}); // athleteId -> boolean (what is shown)
+  const [status, setStatus] = useState('loading');
+  const [saveState, setSaveState] = useState('idle'); // idle | pending | saving | saved | error
   const [search, setSearch] = useState('');
-  const [hasChanges, setHasChanges] = useState(false);
-  const [showAll, setShowAll] = useState(false);
+  const [scope, setScope] = useState('expected');
+  const [taken, setTaken] = useState(false); // attendance has been saved at least once
+  const [adding, setAdding] = useState(false);
 
-  useEffect(() => {
-    if (session?.assignedAthletes?.length > 0) {
-      setShowAll(false);
-    } else {
-      setShowAll(true);
-    }
-  }, [session]);
+  // Refs so the debounced save always sends the latest state.
+  const presentRef = useRef({});
+  const athletesRef = useRef([]);
+  const savedRef = useRef(snapshotOf([], {}));
+  const timerRef = useRef(null);
+  const inFlightRef = useRef(null);
+  const isExpectedRef = useRef(() => true);
 
-  useEffect(() => {
-    fetchData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId]);
+  usePageTitle(session ? `Check in: ${session.name}` : 'Check in');
 
-  const fetchData = async () => {
+  const sessionKey = session ? new Date(session.date).toISOString().slice(0, 10) : null;
+  const backTo = location.state?.from
+    || (sessionKey && sessionKey !== todayKey() ? `/sessions?date=${sessionKey}` : '/sessions');
+
+  const assigned = useMemo(() => new Set((session?.assignedAthletes || []).map(String)), [session]);
+  const hasRoster = assigned.size > 0;
+  // Expected: on the roster (or there is no roster) and already joined by the session day.
+  const isExpected = useCallback(
+    (a) => (!hasRoster || assigned.has(a._id)) && joinedBy(a, sessionKey),
+    [hasRoster, assigned, sessionKey]
+  );
+  isExpectedRef.current = isExpected;
+
+  const load = useCallback(async () => {
+    setStatus('loading');
     try {
-      const [sessionRes, athletesRes, attendanceRes] = await Promise.all([
+      const [s, a, att] = await Promise.all([
         api.get(`/sessions/${sessionId}`),
         api.get('/athletes'),
         api.get(`/attendance/session/${sessionId}`)
       ]);
-
-      setSession(sessionRes.data);
-      setAthletes(athletesRes.data);
-
-      // Build attendance map from existing records
-      const attMap = {};
-      athletesRes.data.forEach(a => {
-        attMap[a._id] = false; // default absent
-      });
-      attendanceRes.data.forEach(a => {
-        const athleteId = a.athlete?._id || a.athlete;
-        attMap[athleteId] = a.present;
-      });
-      setAttendance(attMap);
-    } catch (error) {
-      toast.error('Failed to load session data');
-      navigate('/sessions');
-    } finally {
-      setLoading(false);
+      const map = {};
+      a.data.forEach((x) => { map[x._id] = false; });
+      att.data.forEach((r) => { map[r.athlete?._id || r.athlete] = r.present; });
+      athletesRef.current = a.data;
+      presentRef.current = map;
+      savedRef.current = snapshotOf(a.data, map);
+      setSession(s.data);
+      setAthletes(a.data);
+      setPresent(map);
+      setTaken(att.data.length > 0);
+      setSaveState(att.data.length > 0 ? 'saved' : 'idle');
+      setStatus('ready');
+    } catch (err) {
+      setStatus(err?.response?.status === 404 ? 'missing' : 'error');
     }
-  };
+  }, [sessionId]);
 
-  const toggleAttendance = (athleteId) => {
-    setAttendance(prev => ({
-      ...prev,
-      [athleteId]: !prev[athleteId]
-    }));
-    setHasChanges(true);
-  };
+  useEffect(() => { load(); }, [load]);
 
-  const markAllPresent = () => {
-    const newAtt = { ...attendance };
-    filteredAthletes.forEach(a => {
-      newAtt[a._id] = true;
+  // Sends the full state. Calls are serialized; a call made while one is running
+  // waits for it and then sends whatever is newest.
+  // `force` records the session even when nothing changed (a session nobody came to).
+  const saveNow = useCallback(async (force = false) => {
+    clearTimeout(timerRef.current);
+    if (inFlightRef.current) await inFlightRef.current.catch(() => {});
+    const map = presentRef.current;
+    const snap = snapshotOf(athletesRef.current, map);
+    if (!force && snap === savedRef.current) { setSaveState((s) => (s === 'pending' ? 'saved' : s)); return; }
+
+    const records = [];
+    const clearAthleteIds = [];
+    athletesRef.current.forEach((a) => {
+      if (isExpectedRef.current(a) || map[a._id]) records.push({ athleteId: a._id, present: !!map[a._id] });
+      else clearAthleteIds.push(a._id);
     });
-    setAttendance(newAtt);
-    setHasChanges(true);
-  };
 
-  const markAllAbsent = () => {
-    const newAtt = { ...attendance };
-    filteredAthletes.forEach(a => {
-      newAtt[a._id] = false;
-    });
-    setAttendance(newAtt);
-    setHasChanges(true);
-  };
-
-  const saveAttendance = async () => {
-    setSaving(true);
+    setSaveState('saving');
+    const request = api.post('/attendance/bulk', { sessionId, records, clearAthleteIds });
+    inFlightRef.current = request;
     try {
-      const records = Object.entries(attendance)
-        .filter(([athleteId, present]) => {
-          if (present) return true;
-          if (session?.assignedAthletes?.length > 0) {
-            return session.assignedAthletes.includes(athleteId);
-          }
-          return true;
-        })
-        .map(([athleteId, present]) => ({
-          athleteId,
-          present
-        }));
-
-      await api.post('/attendance/bulk', {
-        sessionId,
-        records
-      });
-
-      setHasChanges(false);
-      setHasChanges(false);
-    } catch (error) {
-      toast.error('Failed to save attendance');
+      await request;
+      savedRef.current = snap;
+      setTaken(true);
+      setSaveState(snapshotOf(athletesRef.current, presentRef.current) === snap ? 'saved' : 'pending');
+    } catch (err) {
+      setSaveState('error');
+      toast.error(apiError(err, 'Could not save attendance. Tap Retry.'));
+      throw err;
     } finally {
-      setSaving(false);
+      if (inFlightRef.current === request) inFlightRef.current = null;
     }
+  }, [sessionId]);
+
+  const scheduleSave = useCallback(() => {
+    setSaveState('pending');
+    clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => { saveNow().catch(() => {}); }, SAVE_DELAY);
+  }, [saveNow]);
+
+  const update = (fn) => {
+    setPresent((p) => {
+      const next = fn(p);
+      presentRef.current = next;
+      return next;
+    });
+    scheduleSave();
   };
 
-  const visibleAthletes = athletes.filter(a => {
-    if (showAll) return true;
-    if (session?.assignedAthletes?.length > 0) {
-      return session.assignedAthletes.includes(a._id);
-    }
-    return true;
+  const unsaved = saveState === 'pending' || saveState === 'saving' || saveState === 'error';
+
+  // Warn before closing the tab while a save is pending or failed.
+  useEffect(() => {
+    if (!unsaved) return undefined;
+    const onBeforeUnload = (e) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [unsaved]);
+
+  // Leaving the page (any link, not only Back) flushes a pending save instead of dropping it.
+  const flushPending = useCallback(() => {
+    if (snapshotOf(athletesRef.current, presentRef.current) !== savedRef.current) saveNow().catch(() => {});
+  }, [saveNow]);
+  useEffect(() => () => flushPending(), [flushPending]);
+
+  const expectedAthletes = athletes.filter(isExpected);
+  const showScope = expectedAthletes.length !== athletes.length;
+  const query = search.trim().toLowerCase();
+  // Searching always looks at everyone, so a walk-in already on the roster is found, not duplicated.
+  const scoped = !query && showScope && scope === 'expected' ? expectedAthletes : athletes;
+  const visible = scoped.filter((a) => a.name.toLowerCase().includes(query));
+  const canAdd = query.length >= 2 && visible.length === 0;
+
+  const presentExpected = expectedAthletes.filter((a) => present[a._id]).length;
+  const presentExtra = athletes.filter((a) => !isExpected(a) && present[a._id]).length;
+
+  const toggle = (id) => update((p) => ({ ...p, [id]: !p[id] }));
+  const setAll = (value) => update((p) => {
+    const next = { ...p };
+    visible.forEach((a) => { next[a._id] = value; });
+    return next;
   });
 
-  const filteredAthletes = visibleAthletes.filter(a =>
-    a.name.toLowerCase().includes(search.toLowerCase())
-  );
-
-  const presentCount = Object.values(attendance).filter(Boolean).length;
-
-  const copyToWhatsApp = () => {
-    if (!session) return;
-    const dateStr = format(new Date(session.date), 'MMM d, yyyy');
-    let text = `${session.name} - ${dateStr} :\n`;
-    
-    const presentAthletes = athletes.filter(a => attendance[a._id]);
-    
-    if (presentAthletes.length === 0) {
-      toast.error('No athletes present to copy');
-      return;
-    }
-
-    presentAthletes.forEach(a => {
-      text += `- ${a.name}\n`;
-    });
-
-    navigator.clipboard.writeText(text).then(() => {
-      toast.success('List copied to clipboard!');
-    }).catch(() => {
-      toast.error('Failed to copy');
-    });
+  const noteFor = (a) => {
+    if (!joinedBy(a, sessionKey)) return 'Joined after this session';
+    if (hasRoster && !assigned.has(a._id)) return 'Not on this session’s list';
+    return null;
   };
 
-  if (loading) {
+  // A walk-in who is not on the roster yet: create them and mark them present.
+  const addWalkIn = async () => {
+    const name = search.trim().replace(/\s+/g, ' ');
+    if (name.length < 2 || adding) return;
+    setAdding(true);
+    try {
+      // Joining on the session day (or today, if the session is in the future) counts this session.
+      const joinDate = sessionKey && sessionKey < todayKey() ? sessionKey : todayKey();
+      const { data } = await api.post('/athletes', { name, joinDate });
+      const list = [...athletesRef.current, data].sort((x, y) => x.name.localeCompare(y.name));
+      athletesRef.current = list;
+      setAthletes(list);
+      update((p) => ({ ...p, [data._id]: true }));
+      setSearch('');
+      toast.success(`${data.name} added and marked present`);
+    } catch (err) {
+      toast.error(apiError(err, 'Could not add the athlete'));
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const leave = async () => {
+    if (unsaved) {
+      try {
+        await saveNow();
+      } catch {
+        const ok = await confirm({
+          title: 'Leave without saving?',
+          body: 'The last changes could not be saved. They will be lost if you leave now.',
+          confirmLabel: 'Leave anyway',
+          tone: 'danger'
+        });
+        if (!ok) return;
+      }
+    }
+    navigate(backTo);
+  };
+
+  const copyList = async () => {
+    const names = athletes.filter((a) => present[a._id]).map((a) => a.name);
+    if (names.length === 0) { toast.error('Nobody is marked present yet'); return; }
+    const text = `${session.name} - ${format(new Date(session.date), 'MMM d, yyyy')}\n${names.map((n) => `- ${n}`).join('\n')}`;
+    try {
+      await copyText(text);
+      toast.success(`Copied ${names.length} ${names.length === 1 ? 'name' : 'names'}`);
+    } catch {
+      toast.error('Could not copy the list');
+    }
+  };
+
+  if (status === 'loading') {
     return (
-      <div className="page-container">
-        <div className="flex items-center justify-center h-64">
-          <div className="w-10 h-10 border-3 border-accent-400 border-t-transparent rounded-full animate-spin" />
-        </div>
+      <div aria-hidden="true">
+        <Skeleton className="mb-2 h-8 w-56" />
+        <Skeleton className="mb-6 h-4 w-40" />
+        <Skeleton className="mb-4 h-11 w-full" />
+        <div className="grid gap-2 lg:grid-cols-2">{Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-16 rounded-lg" />)}</div>
       </div>
     );
   }
 
+  if (status !== 'ready') {
+    return (
+      <Card>
+        <EmptyState
+          icon={PiWarningCircle}
+          title={status === 'missing' ? 'Session not found' : 'Could not load this session'}
+          body={status === 'missing' ? 'It may have been deleted.' : 'Check your connection and try again.'}
+          action={status === 'missing' ? <Button onClick={() => navigate('/sessions')}>Go to sessions</Button> : <Button onClick={load}>Try again</Button>}
+        />
+      </Card>
+    );
+  }
+
+  const nobodyPresent = presentExpected + presentExtra === 0;
+  const saveLabel = {
+    idle: taken ? 'Saved' : 'Tap athletes to mark them present',
+    pending: 'Saving…',
+    saving: 'Saving…',
+    saved: 'Saved automatically',
+    error: 'Not saved'
+  }[saveState];
+
   return (
-    <div className="page-container pb-32">
-      {/* Header */}
-      <div className="flex items-center gap-3 mb-4">
-        <button
-          onClick={() => navigate('/sessions')}
-          className="w-10 h-10 rounded-xl flex items-center justify-center text-dark-400 hover:text-white hover:bg-dark-700 transition-all"
-        >
-          <HiOutlineArrowLeft className="w-5 h-5" />
-        </button>
-        <div className="flex-1">
-          <h1 className="text-xl font-bold">{session?.name}</h1>
-          <p className="text-sm text-dark-400">
-            {session && format(new Date(session.date), 'EEEE, MMM d, yyyy')}
+    <div className="pb-24">
+      <header className="mb-6 flex items-start gap-3">
+        <IconButton icon={PiArrowLeft} label="Back to sessions" variant="secondary" onClick={leave} className="mt-1" />
+        <div className="min-w-0 flex-1">
+          <h1 className="truncate font-display text-[26px] font-medium leading-tight tracking-[-0.045em] md:text-[32px]">{session.name}</h1>
+          <p className="mt-0.5 text-[14px] text-muted">
+            {format(new Date(session.date), 'EEEE, MMMM d')}
+            {session.time && <> at {session.time}</>}
           </p>
         </div>
-        <button
-          onClick={copyToWhatsApp}
-          className="btn-secondary !px-3 !py-2 flex items-center gap-2 text-sm bg-dark-700/50"
-        >
-          <HiOutlineDocumentDuplicate className="w-4 h-4 text-accent-400" />
-          <span className="hidden sm:inline">Copy List</span>
-        </button>
+        <div className="hidden items-center gap-2 sm:flex">
+          <Button variant="secondary" icon={PiCopySimple} onClick={copyList}>Copy present list</Button>
+        </div>
+      </header>
+
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="flex-1">
+          <Input
+            icon={PiMagnifyingGlass}
+            placeholder="Search, or type a new name"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter') return;
+              e.preventDefault();
+              if (visible.length === 1) { toggle(visible[0]._id); setSearch(''); } else if (canAdd) addWalkIn();
+            }}
+            aria-label="Search athletes"
+          />
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {showScope && (
+            <Segmented
+              label="Who to show"
+              value={scope}
+              onChange={setScope}
+              options={[{ value: 'expected', label: 'Expected', count: expectedAthletes.length }, { value: 'all', label: 'Everyone', count: athletes.length }]}
+            />
+          )}
+          {nobodyPresent && visible.length > 1 && (
+            <Button variant="secondary" icon={PiChecks} onClick={() => setAll(true)}>{search ? 'Shown present' : 'All present'}</Button>
+          )}
+          <Menu
+            label="Bulk actions"
+            triggerVariant="secondary"
+            items={[
+              { label: search ? 'Mark shown present' : 'Mark all present', icon: PiChecks, onSelect: () => setAll(true) },
+              { label: search ? 'Clear shown' : 'Clear all', icon: PiEraser, onSelect: () => setAll(false) },
+              { label: 'Copy present list', icon: PiCopySimple, onSelect: copyList }
+            ]}
+          />
+        </div>
       </div>
 
-      {/* Stats bar */}
-      <div className="glass-card p-3 mb-4 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <span className="text-sm text-dark-400">
-            <span className="text-accent-400 font-bold">{presentCount}</span> / {athletes.length} present
-          </span>
-        </div>
-        <div className="flex gap-2">
-          {session?.assignedAthletes?.length > 0 && (
+      {athletes.length === 0 && !query ? (
+        <Card>
+          <EmptyState icon={PiUsersThree} title="No athletes yet" body="Type a name in the search box to add someone and mark them present." />
+        </Card>
+      ) : (
+        <>
+          {visible.length > 0 && (
+            <ul className="grid gap-2 lg:grid-cols-2">
+              {visible.map((a) => (
+                <li key={a._id}>
+                  <AthleteToggle athlete={a} present={!!present[a._id]} note={noteFor(a)} onToggle={() => toggle(a._id)} />
+                </li>
+              ))}
+            </ul>
+          )}
+          {canAdd && (
             <button
-              onClick={() => setShowAll(!showAll)}
-              className={`text-xs px-3 py-1.5 rounded-lg transition-all ${
-                showAll 
-                  ? 'bg-dark-600 text-white' 
-                  : 'bg-accent-500/20 text-accent-400 border border-accent-500/30'
-              }`}
+              type="button"
+              onClick={addWalkIn}
+              disabled={adding}
+              className={cx('mt-2 flex min-h-[64px] w-full items-center gap-3 rounded-lg border border-dashed border-line px-3.5 py-2.5 text-left transition-colors hover:bg-surface-1 disabled:opacity-50')}
             >
-              {showAll ? 'Show Assigned Only' : 'Assigned Only'}
+              <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-surface-2">
+                {adding ? <Spinner /> : <PiUserPlus className="h-5 w-5" aria-hidden="true" />}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[15px] font-medium">Add &ldquo;{search.trim()}&rdquo;</span>
+                <span className="text-[12px] text-muted">New athlete, marked present for this session</span>
+              </span>
             </button>
           )}
-          <button
-            onClick={markAllPresent}
-            className="text-xs px-3 py-1.5 rounded-lg bg-accent-500/10 text-accent-400 hover:bg-accent-500/20 transition-all"
-          >
-            All Present
-          </button>
-          <button
-            onClick={markAllAbsent}
-            className="text-xs px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-all"
-          >
-            All Absent
-          </button>
-        </div>
-      </div>
-
-      {/* Search */}
-      <div className="relative mb-4">
-        <HiOutlineMagnifyingGlass className="absolute left-4 top-1/2 -translate-y-1/2 text-dark-400 w-5 h-5" />
-        <input
-          id="checkin-search"
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search athletes..."
-          className="w-full pl-12"
-        />
-      </div>
-
-      {/* Athletes List */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-        {filteredAthletes.map((athlete, index) => (
-          <button
-            key={athlete._id}
-            onClick={() => toggleAttendance(athlete._id)}
-            className={`toggle-present animate-slide-up ${
-              attendance[athlete._id] ? 'toggle-present-active' : ''
-            }`}
-            style={{ animationDelay: `${index * 30}ms` }}
-          >
-            <div className="flex items-center gap-3 min-w-0">
-              {/* Avatar */}
-              <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 transition-all duration-200 ${
-                attendance[athlete._id]
-                  ? 'bg-accent-500 text-white'
-                  : 'bg-dark-600 text-dark-300'
-              }`}>
-                {athlete.name.charAt(0).toUpperCase()}
-              </div>
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium text-white truncate">{athlete.name}</span>
-                  {athlete.isNewAthlete && (
-                    <span className="badge-new flex-shrink-0">
-                      <HiOutlineSparkles className="w-3 h-3" />
-                      NEW
-                    </span>
-                  )}
-                </div>
-                {athlete.isNewAthlete && (
-                  <p className="text-xs text-dark-400">
-                    Joined {format(new Date(athlete.joinDate), 'MMM d')}
-                  </p>
-                )}
-              </div>
-            </div>
-
-            {/* Toggle indicator */}
-            <div className={`w-12 h-7 rounded-full flex items-center transition-all duration-200 flex-shrink-0 ${
-              attendance[athlete._id]
-                ? 'bg-accent-500 justify-end'
-                : 'bg-dark-600 justify-start'
-            }`}>
-              <div className={`w-5 h-5 rounded-full mx-1 transition-all duration-200 ${
-                attendance[athlete._id]
-                  ? 'bg-white'
-                  : 'bg-dark-400'
-              }`} />
-            </div>
-          </button>
-        ))}
-      </div>
-
-      {filteredAthletes.length === 0 && (
-        <div className="text-center py-8 text-dark-400">
-          {search ? 'No athletes match your search' : 'No athletes yet. Add some from the Athletes page!'}
-        </div>
+        </>
       )}
 
-      {/* Floating Save Button */}
-      {hasChanges && (
-        <div className="fixed bottom-28 md:bottom-8 left-0 right-0 md:left-64 flex justify-center px-4 z-30 animate-slide-up">
-          <button
-            onClick={saveAttendance}
-            disabled={saving}
-            className="btn-primary px-8 py-4 text-base shadow-glow-lg flex items-center gap-2"
-          >
-            {saving ? (
-              <>
-                <svg className="animate-spin w-5 h-5" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                </svg>
-                Saving...
-              </>
-            ) : (
-              <>
-                <HiOutlineCheckCircle className="w-5 h-5" />
-                Save Attendance ({presentCount}/{athletes.length})
-              </>
-            )}
-          </button>
+      {/* Status bar: sits above the mobile tab bar, offset by the sidebar on desktop. */}
+      <div className="fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-chrome px-4 pb-3 md:bottom-0 md:left-[240px] md:pb-6">
+        <div className="mx-auto flex max-w-[640px] items-center gap-3 rounded-pill border border-line bg-surface-2/95 p-1.5 pl-5 shadow-float backdrop-blur-xl">
+          <div className="min-w-0 flex-1" aria-live="polite">
+            <p className="text-[15px] font-semibold tabular-nums">
+              {presentExpected} of {expectedAthletes.length} present
+              {presentExtra > 0 && <span className="font-normal text-muted"> +{presentExtra} extra</span>}
+            </p>
+            <p className={cx('flex items-center gap-1 text-[12px]', saveState === 'error' ? 'text-danger' : 'text-muted')}>
+              {saveState === 'saved' && <PiCloudCheck className="h-3.5 w-3.5" aria-hidden="true" />}
+              {saveLabel}
+            </p>
+          </div>
+          {saveState === 'error' ? (
+            <Button onClick={() => saveNow().catch(() => {})} icon={PiArrowClockwise} size="lg">Retry</Button>
+          ) : !taken && nobodyPresent ? (
+            // A session where nobody came still needs to be recorded.
+            <Button variant="secondary" onClick={() => saveNow(true).catch(() => {})} loading={saveState === 'saving'} size="lg">Nobody came</Button>
+          ) : (
+            <Button onClick={leave} loading={saveState === 'saving'} size="lg">Done</Button>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 };

@@ -11,6 +11,8 @@ const attendanceRoutes = require('./routes/attendance');
 const exportRoutes = require('./routes/export');
 const scheduleRoutes = require('./routes/schedules');
 const testRoutes = require('./routes/tests');
+const cronRoutes = require('./routes/cron');
+const adminRoutes = require('./routes/admin');
 
 const app = express();
 
@@ -34,6 +36,8 @@ const mountRoutes = (prefix) => {
   app.use(`${prefix}/export`, exportRoutes);
   app.use(`${prefix}/schedules`, scheduleRoutes);
   app.use(`${prefix}/tests`, testRoutes);
+  app.use(`${prefix}/cron`, cronRoutes);
+  app.use(`${prefix}/admin`, adminRoutes);
 };
 
 mountRoutes('/api');
@@ -58,15 +62,15 @@ const PORT = process.env.PORT || 5000;
 
 mongoose.connect(process.env.MONGODB_URI)
   .then(() => {
-    console.log('✅ Connected to MongoDB');
+    console.log('Connected to MongoDB');
     if (process.env.NODE_ENV !== 'production') {
       app.listen(PORT, () => {
-        console.log(`🚀 Server running on port ${PORT}`);
+        console.log(`Server running on port ${PORT}`);
       });
     }
   })
   .catch((err) => {
-    console.error('❌ MongoDB connection error:', err.message);
+    console.error('MongoDB connection error:', err.message);
     process.exit(1);
   });
 

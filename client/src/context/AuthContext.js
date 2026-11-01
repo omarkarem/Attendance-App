@@ -11,9 +11,9 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const checkAuth = async () => {
       const token = localStorage.getItem('token');
-      const savedUser = localStorage.getItem('user');
 
-      if (token && savedUser) {
+      // The token alone is enough; /auth/me returns the user.
+      if (token) {
         try {
           const { data } = await api.get('/auth/me');
           setUser(data.user);
@@ -28,6 +28,21 @@ export const AuthProvider = ({ children }) => {
     };
 
     checkAuth();
+  }, []);
+
+  // A request was refused because the account lost (or never had) access.
+  useEffect(() => {
+    const onStatus = (e) => setUser((u) => (u && u.status !== e.detail ? { ...u, status: e.detail } : u));
+    window.addEventListener('auth:status', onStatus);
+    return () => window.removeEventListener('auth:status', onStatus);
+  }, []);
+
+  // Re-reads the account, e.g. to see whether an admin has granted access yet.
+  const refreshUser = useCallback(async () => {
+    const { data } = await api.get('/auth/me');
+    localStorage.setItem('user', JSON.stringify(data.user));
+    setUser(data.user);
+    return data.user;
   }, []);
 
   const login = useCallback(async (email, password) => {
@@ -63,7 +78,10 @@ export const AuthProvider = ({ children }) => {
     login,
     signup,
     logout,
-    isAuthenticated: !!user
+    refreshUser,
+    isAuthenticated: !!user,
+    hasAccess: user?.status === 'active',
+    isAdmin: user?.role === 'admin' && user?.status === 'active'
   };
 
   return (

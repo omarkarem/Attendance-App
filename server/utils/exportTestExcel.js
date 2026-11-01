@@ -1,58 +1,5 @@
 const ExcelJS = require('exceljs');
-
-// ── Shared helpers ──
-
-const formatTime = (totalSeconds) => {
-  const h = Math.floor(totalSeconds / 3600);
-  const m = Math.floor((totalSeconds % 3600) / 60);
-  const s = totalSeconds % 60;
-  return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-};
-
-const formatPace = (distanceMeters, timeSeconds, category) => {
-  if (!distanceMeters || !timeSeconds) return '-';
-  if (category === 'Running') {
-    const distKm = distanceMeters / 1000;
-    const timeMins = timeSeconds / 60;
-    const pace = timeMins / distKm;
-    const mins = Math.floor(pace);
-    const secs = Math.round((pace - mins) * 60);
-    return `${mins}:${secs.toString().padStart(2, '0')} min/km`;
-  } else if (category === 'Swimming') {
-    const dist100 = distanceMeters / 100;
-    const timeMins = timeSeconds / 60;
-    const pace = timeMins / dist100;
-    const mins = Math.floor(pace);
-    const secs = Math.round((pace - mins) * 60);
-    return `${mins}:${secs.toString().padStart(2, '0')} min/100m`;
-  } else if (category === 'Cycling') {
-    const distKm = distanceMeters / 1000;
-    const timeH = timeSeconds / 3600;
-    return `${(distKm / timeH).toFixed(2)} km/h`;
-  }
-  return formatTime(timeSeconds);
-};
-
-const formatDistance = (meters) => {
-  if (meters >= 1000) return `${(meters / 1000).toFixed(2)} km`;
-  return `${meters} m`;
-};
-
-const computePace = (distance, time, category) => {
-  if (category === 'Running') return (time / 60) / (distance / 1000);
-  if (category === 'Swimming') return (time / 60) / (distance / 100);
-  if (category === 'Cycling') return (distance / 1000) / (time / 3600);
-  return time;
-};
-
-const formatPaceValue = (v, category) => {
-  if (category === 'Running' || category === 'Swimming') {
-    const mins = Math.floor(v);
-    const secs = Math.round((v - mins) * 60);
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  }
-  return v.toFixed(2);
-};
+const { formatTime, formatDistance, metricFor, formatRaw, metricUnit, improvement, versionedTitle } = require('./testMetrics');
 
 // Colors
 const headerFill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF16163a' } };
@@ -64,233 +11,111 @@ const rowEvenFill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8F
 const borderStyle = { style: 'thin', color: { argb: 'FFE2E8F0' } };
 const cellBorder = { top: borderStyle, left: borderStyle, bottom: borderStyle, right: borderStyle };
 
+const longDate = (d) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+const unitSuffix = (testType) => (metricUnit(testType) ? ` (${metricUnit(testType)})` : '');
+const valuesOf = (results, testType) => results.map((r) => metricFor(testType).value(r)).filter(Number.isFinite);
+const fmtValue = (v, testType) => (v == null ? '-' : metricFor(testType).format(v));
+const average = (values) => (values.length ? values.reduce((a, b) => a + b, 0) / values.length : null);
+const mean = (list) => (list.length ? Math.round(list.reduce((a, b) => a + b, 0) / list.length) : null);
+const changeText = (pct) => (pct == null ? '-' : `${pct >= 0 ? '+' : ''}${pct}%`);
 
-// ═══════════════════════════════════════════
-// MODE 1: Single Athlete — all tests
-// ═══════════════════════════════════════════
-
-const generateAthleteTestExcel = async (data) => {
-  const { athlete, results, startDate, endDate } = data;
-
-  const workbook = new ExcelJS.Workbook();
-  workbook.creator = 'AttendTrack';
-  workbook.created = new Date();
-
-  // Group results by test type
-  const grouped = {};
-  results.forEach(r => {
-    const typeId = r.testType?._id?.toString() || 'unknown';
-    if (!grouped[typeId]) grouped[typeId] = { type: r.testType, results: [] };
-    grouped[typeId].results.push(r);
-  });
-
-  // Create a sheet per test type (or one combined sheet if few types)
-  const createSheet = (sheetName, typeResults, testType) => {
-    const category = testType?.category || 'Other';
-    const isLowerBetter = category === 'Running' || category === 'Swimming';
-    const paceUnit = category === 'Running' ? 'min/km' : category === 'Swimming' ? 'min/100m' : category === 'Cycling' ? 'km/h' : 's';
-
-    const sheet = workbook.addWorksheet(sheetName.substring(0, 31), {
-      views: [{ state: 'frozen', ySplit: 1 }]
-    });
-
-    sheet.columns = [
-      { header: 'Date', key: 'date', width: 16 },
-      { header: 'Distance', key: 'distance', width: 14 },
-      { header: 'Time', key: 'time', width: 14 },
-      { header: `Pace (${paceUnit})`, key: 'pace', width: 18 },
-      { header: 'Notes', key: 'notes', width: 30 },
-    ];
-
-    // Style header
-    const headerRow = sheet.getRow(1);
-    headerRow.font = headerFont;
-    headerRow.fill = headerFill;
-    headerRow.alignment = { horizontal: 'center', vertical: 'middle' };
-    headerRow.height = 28;
-
-    // Sort by date
-    const sorted = [...typeResults].sort((a, b) => new Date(a.date) - new Date(b.date));
-
-    // Find best pace
-    const paces = sorted.map(r => computePace(r.distance, r.time, category));
-    const bestPace = isLowerBetter ? Math.min(...paces) : Math.max(...paces);
-
-    sorted.forEach((r, idx) => {
-      const pace = computePace(r.distance, r.time, category);
-      const row = sheet.addRow({
-        date: new Date(r.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-        distance: formatDistance(r.distance),
-        time: formatTime(r.time),
-        pace: formatPaceValue(pace, category),
-        notes: r.description || '',
-      });
-
-      // Alternate row color
-      if (idx % 2 === 0) row.fill = rowEvenFill;
-
-      // Highlight best pace
-      const isBest = Math.abs(pace - bestPace) < 0.001;
-      if (isBest && sorted.length > 1) {
-        row.getCell('pace').font = greenFont;
-        row.getCell('pace').value = `★ ${formatPaceValue(pace, category)}`;
-      } else {
-        row.getCell('pace').font = accentFont;
-      }
-
-      row.getCell('date').alignment = { horizontal: 'left' };
-      row.getCell('distance').alignment = { horizontal: 'right' };
-      row.getCell('time').alignment = { horizontal: 'right' };
-      row.getCell('pace').alignment = { horizontal: 'right' };
-    });
-
-    // Summary row
-    if (sorted.length > 1) {
-      const avg = paces.reduce((a, b) => a + b, 0) / paces.length;
-      const first = paces[0];
-      const latest = paces[paces.length - 1];
-      const improvement = first !== 0
-        ? (isLowerBetter
-            ? Math.round(((first - latest) / first) * 100)
-            : Math.round(((latest - first) / first) * 100))
-        : 0;
-
-      sheet.addRow({}); // blank row
-      const summaryRow = sheet.addRow({
-        date: 'Summary',
-        distance: `Best: ${formatPaceValue(bestPace, category)}`,
-        time: `Avg: ${formatPaceValue(avg, category)}`,
-        pace: `Change: ${improvement >= 0 ? '+' : ''}${improvement}%`,
-        notes: `${sorted.length} results`,
-      });
-      summaryRow.font = { bold: true, size: 10 };
-      summaryRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEEF2FF' } };
-      summaryRow.getCell('pace').font = improvement >= 0 ? greenFont : redFont;
-    }
-
-    // Borders
-    sheet.eachRow(row => {
-      row.eachCell(cell => { cell.border = cellBorder; });
-    });
-  };
-
-  if (Object.keys(grouped).length === 0) {
-    const sheet = workbook.addWorksheet('No Results');
-    sheet.addRow({ A: 'No test results found for the selected period.' });
-  } else {
-    Object.values(grouped).forEach(({ type, results: typeResults }) => {
-      const name = type?.title || 'Unknown';
-      createSheet(name, typeResults, type);
-    });
-  }
-
-  return workbook;
-};
-
-
-// ═══════════════════════════════════════════
-// MODE 2: All Athletes for a Specific Test
-// ═══════════════════════════════════════════
-
-const generateTestTypeReportExcel = async (data) => {
-  const { testType, results, athletes, startDate, endDate } = data;
-
-  const workbook = new ExcelJS.Workbook();
-  workbook.creator = 'AttendTrack';
-  workbook.created = new Date();
-
-  const category = testType.category;
-  const isLowerBetter = category === 'Running' || category === 'Swimming';
-  const paceUnit = category === 'Running' ? 'min/km' : category === 'Swimming' ? 'min/100m' : category === 'Cycling' ? 'km/h' : 's';
-
-  const sheet = workbook.addWorksheet(`${testType.title}`.substring(0, 31), {
-    views: [{ state: 'frozen', xSplit: 1, ySplit: 1 }]
-  });
-
-  sheet.columns = [
-    { header: 'Athlete', key: 'athlete', width: 22 },
-    { header: 'Tests', key: 'tests', width: 10 },
-    { header: `Best (${paceUnit})`, key: 'best', width: 16 },
-    { header: `Latest (${paceUnit})`, key: 'latest', width: 16 },
-    { header: `Avg (${paceUnit})`, key: 'avg', width: 16 },
-    { header: 'Change', key: 'change', width: 12 },
-    { header: 'Last Test Date', key: 'lastDate', width: 16 },
-  ];
-
-  // Style header
+const styleHeader = (sheet, height = 28) => {
   const headerRow = sheet.getRow(1);
   headerRow.font = headerFont;
   headerRow.fill = headerFill;
   headerRow.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
-  headerRow.height = 30;
+  headerRow.height = height;
+};
 
-  // Group results by athlete
-  const resultsByAthlete = {};
-  results.forEach(r => {
-    const aId = (r.athlete?._id || r.athlete)?.toString();
-    if (!resultsByAthlete[aId]) resultsByAthlete[aId] = [];
-    resultsByAthlete[aId].push(r);
+const addBorders = (sheet) => sheet.eachRow((row) => row.eachCell((cell) => { cell.border = cellBorder; }));
+
+// Worksheet names must be unique and at most 31 characters, without : \ / ? * [ ].
+const uniqueSheetName = (workbook, name) => {
+  const base = (name || 'Sheet').replace(/[:\\/?*[\]]/g, ' ').substring(0, 31);
+  let candidate = base;
+  for (let i = 2; workbook.getWorksheet(candidate); i++) candidate = `${base.substring(0, 27)} (${i})`;
+  return candidate;
+};
+
+// ═══════════════════════════════════════════
+// MODE 1: Single Athlete — one sheet per test version
+// ═══════════════════════════════════════════
+
+const generateAthleteTestExcel = async (data) => {
+  const { results } = data;
+
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'AttendTrack';
+  workbook.created = new Date();
+
+  const grouped = new Map();
+  results.forEach((r) => {
+    const key = r.testType?._id?.toString() || 'unknown';
+    if (!grouped.has(key)) grouped.set(key, { type: r.testType, results: [] });
+    grouped.get(key).results.push(r);
   });
 
-  athletes.forEach((athlete, idx) => {
-    const athleteResults = resultsByAthlete[athlete._id.toString()] || [];
+  if (grouped.size === 0) {
+    workbook.addWorksheet('No Results').addRow(['No test results found for the selected period.']);
+    return workbook;
+  }
 
-    if (athleteResults.length === 0) {
+  grouped.forEach(({ type: testType, results: typeResults }) => {
+    const metric = metricFor(testType);
+    const sheet = workbook.addWorksheet(uniqueSheetName(workbook, versionedTitle(testType)), { views: [{ state: 'frozen', ySplit: 1 }] });
+    sheet.columns = [
+      { header: 'Date', key: 'date', width: 16 },
+      { header: 'Distance', key: 'distance', width: 14 },
+      { header: 'Time', key: 'time', width: 14 },
+      { header: `${metric.label}${unitSuffix(testType)}`, key: 'pace', width: 18 },
+      { header: 'Notes', key: 'notes', width: 30 },
+    ];
+    styleHeader(sheet);
+
+    const sorted = [...typeResults].sort((a, b) => new Date(a.date) - new Date(b.date));
+    const values = sorted.map((r) => metric.value(r));
+    const finite = values.filter(Number.isFinite);
+    const best = finite.length ? (metric.lowerIsBetter ? Math.min(...finite) : Math.max(...finite)) : null;
+
+    sorted.forEach((r, idx) => {
       const row = sheet.addRow({
-        athlete: athlete.name,
-        tests: 0,
-        best: '-', latest: '-', avg: '-', change: '-', lastDate: '-'
+        date: longDate(r.date),
+        distance: formatDistance(r.distance),
+        time: formatTime(r.time),
+        pace: fmtValue(values[idx], testType),
+        notes: r.description || '',
       });
       if (idx % 2 === 0) row.fill = rowEvenFill;
-      row.font = { color: { argb: 'FF94a3b8' } };
-    } else {
-      const sorted = [...athleteResults].sort((a, b) => new Date(a.date) - new Date(b.date));
-      const paces = sorted.map(r => computePace(r.distance, r.time, category));
+      const isBest = sorted.length > 1 && best != null && Math.abs(values[idx] - best) < 0.001;
+      row.getCell('pace').font = isBest ? greenFont : accentFont;
+      if (isBest) row.getCell('pace').value = `★ ${fmtValue(values[idx], testType)}`;
+      row.getCell('date').alignment = { horizontal: 'left' };
+      ['distance', 'time', 'pace'].forEach((k) => { row.getCell(k).alignment = { horizontal: 'right' }; });
+    });
 
-      const best = isLowerBetter ? Math.min(...paces) : Math.max(...paces);
-      const latest = paces[paces.length - 1];
-      const avg = paces.reduce((a, b) => a + b, 0) / paces.length;
-      const first = paces[0];
-      const improvement = first !== 0
-        ? (isLowerBetter
-            ? Math.round(((first - latest) / first) * 100)
-            : Math.round(((latest - first) / first) * 100))
-        : 0;
-
-      const row = sheet.addRow({
-        athlete: athlete.name,
-        tests: athleteResults.length,
-        best: formatPaceValue(best, category),
-        latest: formatPaceValue(latest, category),
-        avg: formatPaceValue(avg, category),
-        change: `${improvement >= 0 ? '+' : ''}${improvement}%`,
-        lastDate: new Date(sorted[sorted.length - 1].date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+    if (sorted.length > 1) {
+      const change = improvement(finite[0], finite[finite.length - 1], testType);
+      sheet.addRow({});
+      const summaryRow = sheet.addRow({
+        date: 'Summary',
+        distance: `Best: ${fmtValue(best, testType)}`,
+        time: `Avg: ${fmtValue(average(finite), testType)}`,
+        pace: `Change: ${changeText(change)}`,
+        notes: `${sorted.length} results`,
       });
-
-      if (idx % 2 === 0) row.fill = rowEvenFill;
-
-      row.getCell('best').font = greenFont;
-      row.getCell('change').font = improvement >= 0 ? greenFont : redFont;
-      row.getCell('tests').alignment = { horizontal: 'center' };
-      row.getCell('best').alignment = { horizontal: 'center' };
-      row.getCell('latest').alignment = { horizontal: 'center' };
-      row.getCell('avg').alignment = { horizontal: 'center' };
-      row.getCell('change').alignment = { horizontal: 'center' };
-      row.getCell('lastDate').alignment = { horizontal: 'center' };
+      summaryRow.font = { bold: true, size: 10 };
+      summaryRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEEF2FF' } };
+      summaryRow.getCell('pace').font = change == null || change >= 0 ? greenFont : redFont;
     }
-  });
 
-  // Borders
-  sheet.eachRow(row => {
-    row.eachCell(cell => { cell.border = cellBorder; });
+    addBorders(sheet);
   });
 
   return workbook;
 };
 
-
 // ═══════════════════════════════════════════
-// MODE 3: Multiple Test Types — one sheet per test
+// MODE 2: One or more tests, all athletes — one sheet per test version
 // ═══════════════════════════════════════════
 
 const generateMultiTestTypeReportExcel = async (allTestData) => {
@@ -299,18 +124,12 @@ const generateMultiTestTypeReportExcel = async (allTestData) => {
   workbook.created = new Date();
 
   for (const { testType, results, athletes, previousResultsByAthlete } of allTestData) {
-    const category = testType.category;
-    const isLowerBetter = category === 'Running' || category === 'Swimming';
-    const isCycling = category === 'Cycling';
-    const paceUnit = category === 'Running' ? 'min/km' : category === 'Swimming' ? 'min/100m' : category === 'Cycling' ? 'km/h' : 's';
+    const unit = unitSuffix(testType);
+    const isCycling = testType.category === 'Cycling';
 
-    const sheetName = `${testType.title}`.substring(0, 31);
-    const sheet = workbook.addWorksheet(sheetName, {
-      views: [{ state: 'frozen', xSplit: 1, ySplit: 1 }]
-    });
-
-    if (isCycling) {
-      sheet.columns = [
+    const sheet = workbook.addWorksheet(uniqueSheetName(workbook, versionedTitle(testType)), { views: [{ state: 'frozen', xSplit: 1, ySplit: 1 }] });
+    sheet.columns = isCycling
+      ? [
         { header: 'Athlete', key: 'athlete', width: 22 },
         { header: 'Avg Speed (km/h)', key: 'avgSpeed', width: 16 },
         { header: 'Avg Power/FTP (W)', key: 'avgPower', width: 18 },
@@ -320,143 +139,89 @@ const generateMultiTestTypeReportExcel = async (allTestData) => {
         { header: 'Change', key: 'change', width: 12 },
         { header: 'Last Test', key: 'lastDate', width: 16 },
         { header: 'Prev Date', key: 'prevDate', width: 16 },
-      ];
-    } else {
-      sheet.columns = [
+      ]
+      : [
         { header: 'Athlete', key: 'athlete', width: 22 },
-        { header: `Previous (${paceUnit})`, key: 'previous', width: 16 },
-        { header: `Prev Avg (${paceUnit})`, key: 'prevAvg', width: 16 },
-        { header: `Latest (${paceUnit})`, key: 'latest', width: 16 },
-        { header: `Avg (${paceUnit})`, key: 'avg', width: 16 },
+        { header: 'Previous', key: 'previous', width: 16 },
+        { header: `Prev Avg${unit}`, key: 'prevAvg', width: 16 },
+        { header: 'Latest', key: 'latest', width: 16 },
+        { header: `Avg${unit}`, key: 'avg', width: 16 },
         { header: 'Change', key: 'change', width: 12 },
         { header: 'Last Test', key: 'lastDate', width: 16 },
         { header: 'Prev Date', key: 'prevDate', width: 16 },
       ];
-    }
+    styleHeader(sheet, 30);
 
-    // Style header
-    const headerRow = sheet.getRow(1);
-    headerRow.font = headerFont;
-    headerRow.fill = headerFill;
-    headerRow.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
-    headerRow.height = 30;
-
-    // Group results by athlete
-    const resultsByAthlete = {};
-    results.forEach(r => {
-      const aId = (r.athlete?._id || r.athlete)?.toString();
-      if (!resultsByAthlete[aId]) resultsByAthlete[aId] = [];
-      resultsByAthlete[aId].push(r);
+    const byAthlete = {};
+    results.forEach((r) => {
+      const id = (r.athlete?._id || r.athlete)?.toString();
+      (byAthlete[id] = byAthlete[id] || []).push(r);
     });
 
     athletes.forEach((athlete, idx) => {
-      const athleteResults = resultsByAthlete[athlete._id.toString()] || [];
-
-      if (athleteResults.length === 0) {
-        const emptyData = isCycling
-          ? { athlete: athlete.name, avgSpeed: '-', avgPower: '-', avgCadence: '-', avgHR: '-', wkg: '-', change: '-', lastDate: '-', prevDate: '-' }
-          : { athlete: athlete.name, previous: '-', prevAvg: '-', latest: '-', avg: '-', change: '-', lastDate: '-', prevDate: '-' };
-        const row = sheet.addRow(emptyData);
+      const own = [...(byAthlete[athlete._id.toString()] || [])].sort((a, b) => new Date(a.date) - new Date(b.date));
+      if (own.length === 0) {
+        const empty = Object.fromEntries(sheet.columns.map((c) => [c.key, '-']));
+        const row = sheet.addRow({ ...empty, athlete: athlete.name });
         if (idx % 2 === 0) row.fill = rowEvenFill;
         row.font = { color: { argb: 'FF94a3b8' } };
-      } else {
-        const sorted = [...athleteResults].sort((a, b) => new Date(a.date) - new Date(b.date));
-        const paces = sorted.map(r => computePace(r.distance, r.time, category));
-
-        const latest = paces[paces.length - 1];
-        const avg = paces.reduce((a, b) => a + b, 0) / paces.length;
-
-        // Previous results (before the period)
-        const prevResultsRaw = (previousResultsByAthlete && previousResultsByAthlete[athlete._id.toString()]) || [];
-        const prevSorted = [...prevResultsRaw].sort((a, b) => new Date(a.date) - new Date(b.date));
-        const prevPaces = prevSorted.map(r => computePace(r.distance, r.time, category));
-
-        const baselinePace = prevPaces.length > 0 ? prevPaces[prevPaces.length - 1] : paces[0];
-        const improvement = baselinePace !== 0
-          ? (isLowerBetter
-              ? Math.round(((baselinePace - latest) / baselinePace) * 100)
-              : Math.round(((latest - baselinePace) / baselinePace) * 100))
-          : 0;
-
-        const mostRecentPrev = prevSorted.length > 0 ? prevSorted[prevSorted.length - 1] : null;
-        const prevDateStr = mostRecentPrev
-          ? new Date(mostRecentPrev.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-          : '-';
-        const lastDateStr = new Date(sorted[sorted.length - 1].date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-
-        let row;
-        if (isCycling) {
-          // Compute cycling averages from period results
-          const powers = sorted.filter(r => r.avgPower != null).map(r => r.avgPower);
-          const avgPowerVal = powers.length > 0 ? Math.round(powers.reduce((a, b) => a + b, 0) / powers.length) : null;
-
-          const cadences = sorted.filter(r => r.avgCadence != null).map(r => r.avgCadence);
-          const avgCadVal = cadences.length > 0 ? Math.round(cadences.reduce((a, b) => a + b, 0) / cadences.length) : null;
-
-          const hrs = sorted.filter(r => r.avgHeartRate != null).map(r => r.avgHeartRate);
-          const avgHRVal = hrs.length > 0 ? Math.round(hrs.reduce((a, b) => a + b, 0) / hrs.length) : null;
-
-          const latestResult = sorted[sorted.length - 1];
-          const wkg = (latestResult.avgPower && latestResult.weight)
-            ? (latestResult.avgPower / latestResult.weight).toFixed(2)
-            : '-';
-
-          row = sheet.addRow({
-            athlete: athlete.name,
-            avgSpeed: formatPaceValue(avg, category),
-            avgPower: avgPowerVal ? `${avgPowerVal}` : '-',
-            avgCadence: avgCadVal ? `${avgCadVal}` : '-',
-            avgHR: avgHRVal ? `${avgHRVal}` : '-',
-            wkg: wkg,
-            change: `${improvement >= 0 ? '+' : ''}${improvement}%`,
-            lastDate: lastDateStr,
-            prevDate: prevDateStr,
-          });
-
-          if (idx % 2 === 0) row.fill = rowEvenFill;
-
-          row.getCell('avgSpeed').font = accentFont;
-          if (wkg !== '-') row.getCell('wkg').font = greenFont;
-          row.getCell('change').font = improvement >= 0 ? greenFont : redFont;
-          ['avgSpeed', 'avgPower', 'avgCadence', 'avgHR', 'wkg', 'change', 'lastDate', 'prevDate'].forEach(k => {
-            row.getCell(k).alignment = { horizontal: 'center' };
-          });
-        } else {
-          const prevAvgPace = prevPaces.length > 0
-            ? prevPaces.reduce((a, b) => a + b, 0) / prevPaces.length
-            : null;
-
-          row = sheet.addRow({
-            athlete: athlete.name,
-            previous: mostRecentPrev ? formatTime(mostRecentPrev.time) : '-',
-            prevAvg: prevAvgPace !== null ? formatPaceValue(prevAvgPace, category) : '-',
-            latest: formatPaceValue(latest, category),
-            avg: formatPaceValue(avg, category),
-            change: `${improvement >= 0 ? '+' : ''}${improvement}%`,
-            lastDate: lastDateStr,
-            prevDate: prevDateStr,
-          });
-
-          if (idx % 2 === 0) row.fill = rowEvenFill;
-
-          row.getCell('latest').font = accentFont;
-          row.getCell('change').font = improvement >= 0 ? greenFont : redFont;
-          ['previous', 'prevAvg', 'latest', 'avg', 'change', 'lastDate', 'prevDate'].forEach(k => {
-            row.getCell(k).alignment = { horizontal: 'center' };
-          });
-        }
+        return;
       }
+
+      const prev = [...((previousResultsByAthlete && previousResultsByAthlete[athlete._id.toString()]) || [])].sort((a, b) => new Date(a.date) - new Date(b.date));
+      const values = valuesOf(own, testType);
+      const prevValues = valuesOf(prev, testType);
+      const baseline = prevValues.length ? prevValues[prevValues.length - 1] : (values.length > 1 ? values[0] : null);
+      const change = baseline == null ? null : improvement(baseline, values[values.length - 1], testType);
+      const latest = own[own.length - 1];
+      const lastPrev = prev[prev.length - 1];
+      const common = {
+        athlete: athlete.name,
+        change: changeText(change),
+        lastDate: longDate(latest.date),
+        prevDate: lastPrev ? longDate(lastPrev.date) : '-',
+      };
+
+      let row;
+      if (isCycling) {
+        const avgPower = mean(own.filter((r) => r.avgPower != null).map((r) => r.avgPower));
+        const avgCadence = mean(own.filter((r) => r.avgCadence != null).map((r) => r.avgCadence));
+        const avgHR = mean(own.filter((r) => r.avgHeartRate != null).map((r) => r.avgHeartRate));
+        const wkg = latest.avgPower && latest.weight ? (latest.avgPower / latest.weight).toFixed(2) : '-';
+        row = sheet.addRow({
+          ...common,
+          avgSpeed: fmtValue(average(values), testType),
+          avgPower: avgPower ? `${avgPower}` : '-',
+          avgCadence: avgCadence ? `${avgCadence}` : '-',
+          avgHR: avgHR ? `${avgHR}` : '-',
+          wkg,
+        });
+        row.getCell('avgSpeed').font = accentFont;
+        if (wkg !== '-') row.getCell('wkg').font = greenFont;
+      } else {
+        row = sheet.addRow({
+          ...common,
+          previous: lastPrev ? formatRaw(lastPrev, testType) : '-',
+          prevAvg: prevValues.length ? fmtValue(average(prevValues), testType) : '-',
+          latest: formatRaw(latest, testType),
+          avg: fmtValue(average(values), testType),
+        });
+        row.getCell('latest').font = accentFont;
+      }
+      if (idx % 2 === 0) row.fill = rowEvenFill;
+      if (change != null) row.getCell('change').font = change >= 0 ? greenFont : redFont;
+      sheet.columns.slice(1).forEach((c) => { row.getCell(c.key).alignment = { horizontal: 'center' }; });
     });
 
-    // Borders
-    sheet.eachRow(row => {
-      row.eachCell(cell => { cell.border = cellBorder; });
-    });
+    if (!isCycling && testType.measureType === 'Time') {
+      sheet.addRow({});
+      sheet.addRow({ athlete: 'Fixed-time test: Previous and Latest show the distance covered.' });
+    }
+
+    addBorders(sheet);
   }
 
   return workbook;
 };
 
-
-
-module.exports = { generateAthleteTestExcel, generateTestTypeReportExcel, generateMultiTestTypeReportExcel };
+module.exports = { generateAthleteTestExcel, generateMultiTestTypeReportExcel };

@@ -18,6 +18,17 @@ const sessionSchema = new mongoose.Schema({
     required: true,
     index: true
   },
+  // Optional start time "HH:MM", shown as-is (no timezone math).
+  time: {
+    type: String,
+    trim: true,
+    default: null
+  },
+  // "yyyy-MM-dd" for sessions generated from a template; used to dedupe generation.
+  dayKey: {
+    type: String,
+    default: undefined
+  },
   scheduleId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Schedule',
@@ -33,5 +44,10 @@ const sessionSchema = new mongoose.Schema({
 
 // Compound index for coach + date queries
 sessionSchema.index({ coach: 1, date: -1 });
+// One generated session per template per day, even under concurrent requests.
+sessionSchema.index(
+  { scheduleId: 1, dayKey: 1 },
+  { unique: true, partialFilterExpression: { dayKey: { $type: 'string' } } }
+);
 
 module.exports = mongoose.model('Session', sessionSchema);

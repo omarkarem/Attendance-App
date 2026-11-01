@@ -31,6 +31,19 @@ const scheduleSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Athlete'
   }],
+  // Days ("yyyy-MM-dd") whose generated session the coach deleted; never regenerate them.
+  skippedDates: {
+    type: [String],
+    default: []
+  },
+  // Watermark ("yyyy-MM-dd"): every day up to and including it has had its session
+  // generated. Backfill only fills days after it, so days a coach deleted before
+  // skippedDates existed, and days while the template was paused, are never recreated.
+  // null on templates created before the watermark existed; treated as "yesterday".
+  generatedThrough: {
+    type: String,
+    default: null
+  },
   active: {
     type: Boolean,
     default: true

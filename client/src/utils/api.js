@@ -23,6 +23,12 @@ api.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+    // The coach's local calendar day, on every request. The server creates template
+    // sessions up to it and uses it for "today" defaults (join dates, test dates),
+    // so it matches what the coach calls today rather than the server's UTC date.
+    const d = new Date();
+    const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    config.params = { today, ...config.params };
     return config;
   },
   (error) => Promise.reject(error)
@@ -32,6 +38,12 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    // Access granted or revoked by an admin since the page loaded: let AuthContext
+    // pick up the new status so the app swaps to the access screen.
+    const code = error.response?.data?.code;
+    if (error.response?.status === 403 && (code === 'ACCOUNT_PENDING' || code === 'ACCOUNT_REVOKED')) {
+      window.dispatchEvent(new CustomEvent('auth:status', { detail: error.response.data.status }));
+    }
     if (error.response && error.response.status === 401) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
