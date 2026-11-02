@@ -1,5 +1,7 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const Athlete = require('../models/Athlete');
+const User = require('../models/User');
 const Attendance = require('../models/Attendance');
 const Session = require('../models/Session');
 const Schedule = require('../models/Schedule');
@@ -68,10 +70,97 @@ router.get('/', async (req, res) => {
       query.name = { $regex: escapeRegex(search), $options: 'i' };
     }
 
-    const athletes = await Athlete.find(query).sort({ name: 1 });
+    const athletes = await Athlete.find(query).sort({ name: 1 }).populate('linkedFrom.coach', 'name');
     res.json(athletes);
   } catch (error) {
     res.status(500).json({ message: error.message || 'Error fetching athletes.' });
+  }
+});
+
+// Only a head coach working in their own account can take athletes from their coaches.
+const headOnly = (req, res) => {
+  if (!req.user._id.equals(req.authUser._id)) {
+    res.status(400).json({ message: 'Switch back to your own account to add athletes from your coaches.' });
+    return false;
+  }
+  return true;
+};
+
+// GET /api/athletes/from-coaches - the coaches under you and their active athletes.
+// `added` marks athletes already on your roster (added before, or same name).
+router.get('/from-coaches', async (req, res) => {
+  try {
+    if (!headOnly(req, res)) return;
+    const coaches = await User.find({ headCoach: req.user._id, status: 'active' }).select('name email').sort({ name: 1 });
+    const [theirs, mine] = await Promise.all([
+      Athlete.find({ coach: { $in: coaches.map((c) => c._id) }, active: true }).select('name coach joinDate').sort({ name: 1 }),
+      Athlete.find({ coach: req.user._id }).select('name active linkedFrom')
+    ]);
+    const linked = new Map(mine.filter((a) => a.linkedFrom?.athlete).map((a) => [String(a.linkedFrom.athlete), a]));
+    const names = new Map(mine.map((a) => [a.name.toLowerCase(), a]));
+    res.json(coaches.map((c) => ({
+      id: c._id,
+      name: c.name,
+      email: c.email,
+      athletes: theirs.filter((a) => a.coach.equals(c._id)).map((a) => {
+        const copy = linked.get(String(a._id));
+        const sameName = names.get(a.name.toLowerCase());
+        return {
+          _id: a._id,
+          name: a.name,
+          // 'added' (on your roster), 'archived' (yours but archived: adding restores it),
+          // 'name-taken' (you have a different athlete with this name), or null.
+          state: copy ? (copy.active ? 'added' : 'archived') : sameName ? 'name-taken' : null
+        };
+      })
+    })));
+  } catch (error) {
+    res.status(500).json({ message: 'Could not load your coaches\' athletes.' });
+  }
+});
+
+// POST /api/athletes/from-coach - { coachId, athleteIds: [id], scheduleIds?: [id] }
+// Adds the chosen athletes of a coach under you to your own roster, joining today.
+router.post('/from-coach', async (req, res) => {
+  try {
+    if (!headOnly(req, res)) return;
+    const { coachId, athleteIds, scheduleIds } = req.body;
+    const today = clientToday(req.query.today);
+    if (!Array.isArray(athleteIds) || athleteIds.length === 0) return res.status(400).json({ message: 'Choose at least one athlete.' });
+    const coach = mongoose.isValidObjectId(coachId) ? await User.findOne({ _id: coachId, headCoach: req.user._id }) : null;
+    if (!coach) return res.status(404).json({ message: 'This coach is not on your team.' });
+
+    const ids = athleteIds.filter((id) => mongoose.isValidObjectId(id));
+    const [sources, mine] = await Promise.all([
+      Athlete.find({ _id: { $in: ids }, coach: coach._id }).select('name'),
+      Athlete.find({ coach: req.user._id }).select('name active linkedFrom')
+    ]);
+    if (sources.length !== new Set(ids.map(String)).size) return res.status(404).json({ message: `Some of these athletes are not ${coach.name}'s.` });
+
+    const linked = new Map(mine.filter((a) => a.linkedFrom?.athlete).map((a) => [String(a.linkedFrom.athlete), a]));
+    const taken = new Set(mine.map((a) => a.name.toLowerCase()));
+    const toCreate = [];
+    const restore = [];
+    const skipped = [];
+    sources.forEach((s) => {
+      const copy = linked.get(String(s._id));
+      if (copy) {
+        if (copy.active) skipped.push({ name: s.name, reason: 'already on your roster' });
+        else restore.push(copy._id);
+        return;
+      }
+      if (taken.has(s.name.toLowerCase())) { skipped.push({ name: s.name, reason: 'you already have an athlete with this name' }); return; }
+      taken.add(s.name.toLowerCase());
+      toCreate.push({ name: s.name, coach: req.user._id, joinDate: noonUtc(today), linkedFrom: { athlete: s._id, coach: coach._id } });
+    });
+
+    const created = toCreate.length ? await Athlete.insertMany(toCreate) : [];
+    if (restore.length) await Athlete.updateMany({ _id: { $in: restore } }, { $set: { active: true, archivedAt: null } });
+    await enrollInTemplates(req.user._id, scheduleIds, [...created.map((a) => a._id), ...restore], today);
+
+    res.status(201).json({ added: created.length + restore.length, restored: restore.length, skipped });
+  } catch (error) {
+    res.status(500).json({ message: 'Could not add the athletes.' });
   }
 });
 

@@ -37,6 +37,30 @@ const userSchema = new mongoose.Schema({
   },
   statusChangedAt: {
     type: Date
+  },
+  // Team: a coach can work under one head coach. The head can open and manage this
+  // account; teamAccess is what the head lets this coach do with the head's own data.
+  headCoach: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null,
+    index: true
+  },
+  teamJoinedAt: {
+    type: Date
+  },
+  teamAccess: {
+    // 'view' or 'edit' lets this coach open the head coach's account.
+    data: { type: String, enum: ['none', 'view', 'edit'], default: 'none' },
+    // Lets this coach see the team's finance pages (revenue, packages, costs).
+    finance: { type: Boolean, default: false }
+  },
+  // Finance settings, used on the head coach (or a coach without a team).
+  currency: {
+    type: String,
+    trim: true,
+    maxlength: 8,
+    default: ''
   }
 }, {
   timestamps: true

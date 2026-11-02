@@ -1,15 +1,22 @@
 const jwt = require('jsonwebtoken');
+const mongoose = require('mongoose');
 const User = require('../models/User');
 const { syncBootstrapAdmin } = require('../utils/admin');
+const { accessTo } = require('../utils/team');
 
 const ACCOUNT_BLOCKED = {
   pending: { code: 'ACCOUNT_PENDING', message: 'Your account is waiting for an admin to give it access.' },
   revoked: { code: 'ACCOUNT_REVOKED', message: 'Your access to AttendTrack has been revoked.' }
 };
 
+const ACT_AS_HEADER = 'x-act-as';
+
 // allowInactive lets pending and revoked accounts through (only /auth/me uses it,
 // so the client can show them where they stand).
-const authenticate = ({ allowInactive = false } = {}) => async (req, res, next) => {
+// actAs honours the X-Act-As header: a head coach (or a team coach the head allows)
+// works in another account. req.user is then that account, so every data route stays
+// scoped to req.user; req.authUser is always the signed-in account.
+const authenticate = ({ allowInactive = false, actAs = false } = {}) => async (req, res, next) => {
   try {
     let token;
 
@@ -44,6 +51,23 @@ const authenticate = ({ allowInactive = false } = {}) => async (req, res, next) 
     }
 
     req.user = user;
+    req.authUser = user;
+    req.access = 'edit';
+
+    const targetId = actAs && req.headers[ACT_AS_HEADER];
+    if (targetId && targetId !== String(user._id)) {
+      const target = mongoose.isValidObjectId(targetId) ? await User.findById(targetId) : null;
+      const access = accessTo(user, target);
+      if (!access) {
+        return res.status(403).json({ code: 'ACT_AS_DENIED', message: 'You no longer have access to that account.' });
+      }
+      if (access === 'view' && !['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+        return res.status(403).json({ code: 'VIEW_ONLY', message: `You can view ${target.name}'s data but not change it.` });
+      }
+      req.user = target;
+      req.access = access;
+    }
+
     next();
   } catch (error) {
     if (error.name === 'TokenExpiredError') {
@@ -56,12 +80,15 @@ const authenticate = ({ allowInactive = false } = {}) => async (req, res, next) 
   }
 };
 
-const auth = authenticate();
+// Data routes (athletes, sessions, attendance, tests, export) follow X-Act-As.
+const auth = authenticate({ actAs: true });
+// Account-level routes (admin, team, finance) always act as the signed-in account.
+auth.self = authenticate();
 auth.allowInactive = authenticate({ allowInactive: true });
 
 // Use after auth.
 auth.requireAdmin = (req, res, next) => {
-  if (req.user.role !== 'admin') {
+  if (req.authUser.role !== 'admin') {
     return res.status(403).json({ message: 'Only admins can do that.' });
   }
   next();

@@ -421,3 +421,65 @@ A coach's stopwatch at `/stopwatch` (sidebar under Coaching, and a bottom tab on
 Files: `utils/stopwatch.js` (maths, formatting, storage sanitizing; tests in `stopwatch.test.js`), `context/StopwatchContext.js` (state, persistence, tab sync, wake lock), `hooks/useNow.js`, `components/stopwatch/StopwatchParts.js`, `pages/Stopwatch.js`.
 
 Not covered: stopwatches are per device and browser, not synced between a coach's phone and laptop. Saving lap times as test results is a possible next step.
+
+---
+
+## 11. Teams and finance (November 2, 2026, branch `team-finance`)
+
+### Teams (`/team`, "Coaches")
+- A coach can have coaches under them (one level: a coach under someone cannot have their own coaches, and a head coach cannot join another team).
+- **Requests live in the app.** A head coach invites a coach by email, or a coach asks to join a head coach by email. The other side sees it under Coaches (with a badge in the nav) and accepts or declines; the sender can cancel. Accepting cancels the member's other open requests.
+- **Head coach controls**, per coach: Open account, access to the head's own data (No access / View only / Full access), Finance on or off, Remove from team. A member can Leave team. Leaving or removal keeps all data with its owner.
+- **Athletes from your coaches** (Athletes → From your coaches, head coach in their own account only): pick a coach, tick athletes (search, select all), optionally the head's templates they train in. Each becomes the head's own athlete, joining today, with `linkedFrom { athlete, coach }` and a "From Sara" tag; the coach keeps theirs. Attendance and tests are separate per record. Athletes already added show "On your roster"; a different athlete with the same name blocks the add ("Name taken"); re-adding an archived copy restores it. Finance lists the person once (the head's copy is hidden while the original is listed, unless the copy has its own payments).
+- **Opening an account** (switcher in the sidebar and in the mobile More sheet, or Open account on Coaches): every coaching page (Today, Sessions, Athletes, Attendance, Tests, Export, check-in) then works in that account, so the head can add or remove athletes, run sessions and take attendance for a coach. A banner shows whose account is open, with "view only" when it is. The choice survives reloads and is dropped when access is taken away.
+- Server: the client sends `X-Act-As: <userId>`. `middleware/auth.js` checks the relationship on every request and swaps `req.user`, so the existing routes needed no changes; `req.authUser` is always the signed-in account. View-only access refuses anything but GET (`403 VIEW_ONLY`); lost access returns `403 ACT_AS_DENIED`. Admin, team and finance routes use `auth.self` and ignore the header.
+
+### Finance (`/finance`)
+- Owned by the team: the head coach's data, shared with coaches the head gives finance access. A coach without a team has their own. Coaches without access get no nav item and a 404 page; the API returns `403 FINANCE_DENIED`.
+- **Packages**: name, price per month, days a week, and shares (money that goes to the gym, pool, etc.). Editing a package updates unpaid athletes from the current month on; paid and earlier months keep their price. Used packages are archived, not deleted.
+- **Athletes** (per month): every athlete of the head and the coaches under them. An athlete can be enrolled in **several packages** (tick them in the Packages picker); each package has its own Paid toggle, plus "Mark all paid" when more than one is unpaid. An athlete counts as paid once every package is paid. Filters (paid / not paid / no package, coach, search), and "Use last month's packages" carries every package into a new month. Each month stores a copy of each package's name, price and shares.
+- **Costs** (per month): coach pay (optionally linked to a team coach), facilities, other; monthly or this month only. Editing a monthly cost that started earlier applies from the viewed month on (earlier months keep the old amount); removing it stops it from that month.
+- **Overview**: profit, collected, passed on (shares, paid athletes only), revenue after shares, expected, outstanding, paid count, where the money goes, costs by type, by package, by coach, and a 12-month chart. Currency is a setting on the Packages tab.
+
+### New models and endpoints
+| Model | Key fields |
+|---|---|
+| User (added) | `headCoach`, `teamJoinedAt`, `teamAccess { data: none\|view\|edit, finance }`, `currency` |
+| Athlete (added) | `linkedFrom { athlete, coach }` when a head coach added the athlete from a team coach |
+| TeamRequest | head, member, initiatedBy, status pending/accepted/declined/cancelled; one pending per pair |
+| Package | owner, name, price, daysPerWeek 1-7, shares [{ label, amount }] (sum ≤ price), active |
+| Payment | one per athlete per package per month: owner, athlete, athleteName, coach, month `yyyy-MM`, package snapshot, paid, paidAt; unique (owner, athlete, month, package) |
+| Expense | owner, label, amount, category coach/facility/other, coach, recurring, startMonth, endMonth |
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/team` | head, access, members with athlete and session counts, incoming and outgoing requests |
+| POST | `/team/requests` | `{ type: invite\|join, email }` |
+| POST | `/team/requests/:id/accept`, `/decline` | decline by the sender cancels |
+| PATCH/DELETE | `/team/members/:id` | `{ data?, finance? }` / remove |
+| POST | `/team/leave` | |
+| GET | `/athletes/from-coaches` | coaches under you and their active athletes, each with `state`: null, `added`, `archived`, `name-taken` |
+| POST | `/athletes/from-coach` | `{ coachId, athleteIds, scheduleIds? }` → `{ added, restored, skipped: [{ name, reason }] }`; refused while working in another account |
+| GET/POST/PUT/DELETE | `/finance/packages` | PUT also takes `{ active }` |
+| GET | `/finance/month?month` | athletes, packages, costs and summary for one month |
+| GET | `/finance/trend?end&months` | one summary row per month (max 24) |
+| PUT | `/finance/payments` | `{ athleteId, month, packageIds: [id] }` sets the athlete's packages for the month; kept ones keep their paid state, `[]` clears |
+| PATCH | `/finance/payments/:id` | `{ paid }` for one package |
+| POST | `/finance/payments/copy` | `{ month }` → `{ copied: athletes, packages }` |
+| GET/POST/PUT/DELETE | `/finance/expenses` | PUT and DELETE take `?month=` |
+| PUT | `/finance/settings` | `{ currency }` |
+
+`/auth/me` now also returns `headCoach`, `teamAccess`, `memberCount`, `requestCount`, `financeAccess` and `workspaces` (accounts the user can open).
+
+### Tested
+- 71 API checks against a scratch MongoDB 7: requests (unknown email, self, duplicate, sender cannot accept, cancelling other requests on accept, nesting rules), act-as (full, view-only, denied, outsider, admin route ignores it), finance access, package validation, payment snapshots, revenue maths, cost splitting and stopping, copying a month, archived packages, leaving and removal.
+- Browser: accepting a request, opening a coach's account (persists across reload), view-only banner, finance overview, athletes paid toggle, new package dialog, costs, and a coach without finance access getting the 404.
+- `CI=true npm run build` passes with no warnings.
+
+- Several packages per athlete (13 more checks, 84 in all): two packages at once, people counted once in totals, by coach and in the trend, half-paid athletes not counted as paid, removing one package keeps the other's paid state, duplicate ids, copying both packages, clearing a month, other teams cannot mark paid. The old one-package index is dropped on startup. In the browser: picking two packages and Mark all paid.
+- Athletes from coaches (27 checks): listing with states, refusing while working in a coach's account, members and outsiders refused, athletes of another coach rejected, name clash skipped, join date today, coach keeps the original, template enrolment, re-adding skipped, archived copy restored, finance listing and month copy count the person once. In the browser: the coach list, the states, adding one athlete, the "From" tag.
+
+### Deploying
+- No migration: new fields default to no team and no access. Deploy server and client together (the client calls `/team` and `/finance`).
+- An early build of this branch created a unique index `owner_1_athlete_1_month_1` on `payments`, which allows only one package per athlete. The server drops it on startup (`Payment.dropLegacyIndexes` in `server.js`).
+- `server/scripts/reset-password.js` sets a new password for an account from the command line (asks for the email and password; uses `MONGODB_URI`).

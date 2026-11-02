@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const auth = require('../middleware/auth');
 const { isBootstrapAdmin, syncBootstrapAdmin, publicUser } = require('../utils/admin');
+const { teamSummary } = require('../utils/team');
 
 const router = express.Router();
 
@@ -14,11 +15,13 @@ const generateToken = (userId) => {
 };
 
 // Admins also get the number of accounts waiting for access, for the nav badge.
+// Active accounts get their team: head coach, access, open requests, accounts they can open.
 const userPayload = async (user) => ({
   ...publicUser(user),
   ...(user.role === 'admin' && user.status === 'active'
     ? { pendingCount: await User.countDocuments({ status: 'pending' }) }
-    : {})
+    : {}),
+  ...(user.status === 'active' ? await teamSummary(user) : {})
 });
 
 // POST /api/auth/signup
@@ -32,7 +35,7 @@ router.post('/signup', async (req, res) => {
     }
 
     // Check if user already exists
-    const existingUser = await User.findOne({ email });
+    const existingUser = await User.findOne({ email: String(email).trim().toLowerCase() });
     if (existingUser) {
       return res.status(400).json({ message: 'An account with this email already exists.' });
     }
@@ -81,8 +84,8 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ message: 'Please provide email and password.' });
     }
 
-    // Find user and include password field
-    const user = await User.findOne({ email }).select('+password');
+    // Emails are stored lowercase, so match however it was typed or autofilled.
+    const user = await User.findOne({ email: String(email).trim().toLowerCase() }).select('+password');
     if (!user) {
       return res.status(401).json({ message: 'Invalid email or password.' });
     }

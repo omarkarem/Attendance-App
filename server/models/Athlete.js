@@ -34,6 +34,12 @@ const athleteSchema = new mongoose.Schema({
   archivedAt: {
     type: Date,
     default: null
+  },
+  // Set when a head coach added this athlete from a team coach's roster. The head gets
+  // their own record (own sessions, attendance, tests); this points at the original.
+  linkedFrom: {
+    athlete: { type: mongoose.Schema.Types.ObjectId, ref: 'Athlete' },
+    coach: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
   }
 }, {
   timestamps: true,
@@ -52,6 +58,7 @@ athleteSchema.virtual('isNewAthlete').get(function isNewAthlete() {
 
 // Compound index for coach + active queries
 athleteSchema.index({ coach: 1, active: 1 });
+athleteSchema.index({ coach: 1, 'linkedFrom.athlete': 1 }, { sparse: true });
 
 module.exports = mongoose.model('Athlete', athleteSchema);
 module.exports.NEW_ATHLETE_DAYS = NEW_ATHLETE_DAYS;
