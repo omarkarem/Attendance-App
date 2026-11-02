@@ -165,7 +165,7 @@ const Dashboard = () => {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* The header brings its own bottom margin; cancel it inside this gap-based stack. */}
+      {/* The header brings its own bottom margin; cancel it inside this gap-based stack.   */}
       <div className="-mb-6 md:-mb-8">
         <PageHeader title={`${greeting()}, ${firstName}`} description={format(new Date(), 'EEEE, MMMM d')} />
       </div>
