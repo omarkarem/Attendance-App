@@ -49,12 +49,12 @@ mountRoutes('/api');
 mountRoutes(''); // Handles cases where the frontend forgot to append /api to the URL
 
 // Health check
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
+const health = (req, res) => {
+  const db = mongoose.connection.readyState === 1 ? 'connected' : 'disconnected';
+  res.json({ status: 'ok', db, timestamp: new Date().toISOString() });
+};
+app.get('/api/health', health);
+app.get('/health', health);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
@@ -77,7 +77,8 @@ mongoose.connect(process.env.MONGODB_URI)
   })
   .catch((err) => {
     console.error('MongoDB connection error:', err.message);
-    process.exit(1);
+    // On Vercel, exiting kills the function and every request (CORS preflights included) fails with no headers
+    if (process.env.NODE_ENV !== 'production') process.exit(1);
   });
 
 // Export the Express API for Vercel Serverless
