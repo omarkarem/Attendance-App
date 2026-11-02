@@ -8,7 +8,7 @@ const { isBootstrapAdmin } = require('../utils/admin');
 const router = express.Router();
 
 // Every route here is admin only.
-router.use(auth, auth.requireAdmin);
+router.use(auth.self, auth.requireAdmin);
 
 const accountView = (user, athleteCounts) => ({
   _id: user._id,

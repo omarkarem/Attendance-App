@@ -8,6 +8,16 @@ if (!baseURL.endsWith('/api') && baseURL.includes('vercel.app')) {
   baseURL += '/api';
 }
 
+// The account being worked in, when it is not your own: { userId, id, name, access }.
+export const ACT_AS_KEY = 'actAs';
+export const readActAs = () => {
+  try {
+    return JSON.parse(localStorage.getItem(ACT_AS_KEY)) || null;
+  } catch {
+    return null;
+  }
+};
+
 const api = axios.create({
   baseURL,
   withCredentials: true,
@@ -22,6 +32,11 @@ api.interceptors.request.use(
     const token = localStorage.getItem('token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
+    }
+    // Working in a team coach's account (see AuthContext). The server checks access.
+    const actAs = readActAs();
+    if (actAs) {
+      config.headers['X-Act-As'] = actAs.id;
     }
     // The coach's local calendar day, on every request. The server creates template
     // sessions up to it and uses it for "today" defaults (join dates, test dates),
@@ -44,9 +59,14 @@ api.interceptors.response.use(
     if (error.response?.status === 403 && (code === 'ACCOUNT_PENDING' || code === 'ACCOUNT_REVOKED')) {
       window.dispatchEvent(new CustomEvent('auth:status', { detail: error.response.data.status }));
     }
+    // The head coach took away access to the account being worked in.
+    if (error.response?.status === 403 && code === 'ACT_AS_DENIED') {
+      window.dispatchEvent(new CustomEvent('auth:actas-denied'));
+    }
     if (error.response && error.response.status === 401) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
+      localStorage.removeItem(ACT_AS_KEY);
       // Only redirect if not already on auth pages
       if (!window.location.pathname.includes('/login') && !window.location.pathname.includes('/signup')) {
         window.location.href = '/login';

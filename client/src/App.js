@@ -23,6 +23,8 @@ import AthleteProfile from './pages/AthleteProfile';
 import AccessPending from './pages/AccessPending';
 import Accounts from './pages/Accounts';
 import Stopwatch from './pages/Stopwatch';
+import Team from './pages/Team';
+import Finance from './pages/Finance';
 import { PiCompass } from 'react-icons/pi';
 
 const BootScreen = () => (
@@ -32,16 +34,23 @@ const BootScreen = () => (
 );
 
 const ProtectedLayout = () => {
-  const { isAuthenticated, hasAccess, loading } = useAuth();
+  const { isAuthenticated, hasAccess, loading, actingAs } = useAuth();
   if (loading) return <BootScreen />;
   if (!isAuthenticated) return <Navigate to="/login" replace />;
   if (!hasAccess) return <AccessPending />;
-  return <AppShell><Outlet /></AppShell>;
+  // Switching accounts remounts the page so it loads the other account's data.
+  return <AppShell><Outlet key={actingAs?.id || 'self'} /></AppShell>;
 };
 
 const AdminOnly = () => {
   const { isAdmin } = useAuth();
   return isAdmin ? <Outlet /> : <NotFound />;
+};
+
+// Finance shows revenue, so coaches without access get nothing, not even a locked screen.
+const FinanceOnly = () => {
+  const { financeAccess } = useAuth();
+  return financeAccess ? <Outlet /> : <NotFound />;
 };
 
 const PublicOnly = () => {
@@ -103,6 +112,10 @@ function App() {
                 <Route path="/attendance" element={<AttendanceGrid />} />
                 <Route path="/export" element={<Export />} />
                 <Route path="/stopwatch" element={<Stopwatch />} />
+                <Route path="/team" element={<Team />} />
+                <Route element={<FinanceOnly />}>
+                  <Route path="/finance" element={<Finance />} />
+                </Route>
                 <Route element={<AdminOnly />}>
                   <Route path="/admin/accounts" element={<Accounts />} />
                 </Route>

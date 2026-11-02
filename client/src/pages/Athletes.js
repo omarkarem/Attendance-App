@@ -2,9 +2,10 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
-import { PiPlus, PiMagnifyingGlass, PiPencilSimple, PiArchive, PiArrowCounterClockwise, PiTrash, PiUsersThree, PiCaretRight, PiWarningCircle } from 'react-icons/pi';
+import { PiPlus, PiMagnifyingGlass, PiPencilSimple, PiArchive, PiArrowCounterClockwise, PiTrash, PiUsersThree, PiCaretRight, PiWarningCircle, PiUsersFour } from 'react-icons/pi';
 import api from '../utils/api';
 import usePageTitle from '../hooks/usePageTitle';
+import useAuth from '../hooks/useAuth';
 import { apiError } from '../utils/browser';
 import { Card, PageHeader, Avatar, Badge, Skeleton, EmptyState } from '../components/ui/Display';
 import Button from '../components/ui/Button';
@@ -14,6 +15,7 @@ import { Segmented } from '../components/ui/Segmented';
 import { useConfirm } from '../components/ui/ConfirmProvider';
 import AthleteFormDialog from '../components/AthleteFormDialog';
 import AddAthletesDialog from '../components/AddAthletesDialog';
+import AddFromCoachesDialog from '../components/AddFromCoachesDialog';
 
 const Athletes = () => {
   usePageTitle('Athletes');
@@ -26,6 +28,10 @@ const Athletes = () => {
   const [search, setSearch] = useState('');
   const [dialog, setDialog] = useState({ open: false, athlete: null });
   const [adding, setAdding] = useState(false);
+  const [fromCoaches, setFromCoaches] = useState(false);
+  const { user, actingAs } = useAuth();
+  // Head coaches, in their own account, can add athletes from the coaches under them.
+  const canAddFromCoaches = !actingAs && user?.memberCount > 0;
 
   const load = useCallback(async () => {
     setStatus('loading');
@@ -94,7 +100,12 @@ const Athletes = () => {
       <PageHeader
         title="Athletes"
         description={status === 'ready' && !archived ? `${athletes.length} active${newCount ? `, ${newCount} new` : ''}` : 'Your roster.'}
-        actions={<Button icon={PiPlus} onClick={() => setAdding(true)}>Add athletes</Button>}
+        actions={(
+          <>
+            {canAddFromCoaches && <Button variant="secondary" icon={PiUsersFour} onClick={() => setFromCoaches(true)}>From your coaches</Button>}
+            <Button icon={PiPlus} onClick={() => setAdding(true)}>Add athletes</Button>
+          </>
+        )}
       />
 
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -143,6 +154,7 @@ const Athletes = () => {
                   <div className="flex items-center gap-2">
                     <span className="truncate text-[15px] font-medium group-hover:underline">{a.name}</span>
                     {a.isNewAthlete && <Badge tone="new">New</Badge>}
+                    {a.linkedFrom?.coach?.name && <Badge tone="info">From {a.linkedFrom.coach.name}</Badge>}
                   </div>
                   <p className="text-[12px] text-muted">
                     {archived
@@ -174,7 +186,8 @@ const Athletes = () => {
         athlete={dialog.athlete}
         onClose={() => setDialog({ open: false, athlete: null })}
         onSaved={(data) => {
-          setAthletes((list) => list.map((x) => (x._id === data._id ? data : x)).sort((x, y) => x.name.localeCompare(y.name)));
+          // Keep the populated coach name for the "From" tag; the update response has only the id.
+          setAthletes((list) => list.map((x) => (x._id === data._id ? { ...data, linkedFrom: x.linkedFrom } : x)).sort((x, y) => x.name.localeCompare(y.name)));
           toast.success('Athlete updated');
         }}
       />
@@ -187,6 +200,17 @@ const Athletes = () => {
           const added = created.length === 1 ? `${created[0].name} added` : `${created.length} athletes added`;
           if (skipped.length) toast(`${created.length ? `${added}. ` : ''}Already on your roster: ${skipped.join(', ')}`, { duration: 5000 });
           else toast.success(added);
+        }}
+      />
+      <AddFromCoachesDialog
+        open={fromCoaches}
+        onClose={() => setFromCoaches(false)}
+        onSaved={({ added, skipped }, coach) => {
+          if (archived) setArchived('active');
+          else load();
+          const text = added ? `${added === 1 ? '1 athlete' : `${added} athletes`} added from ${coach.name}` : 'Nobody added';
+          if (skipped.length) toast(`${text}. Skipped ${skipped.map((x) => `${x.name} (${x.reason})`).join(', ')}`, { duration: 6000 });
+          else toast.success(text);
         }}
       />
     </>

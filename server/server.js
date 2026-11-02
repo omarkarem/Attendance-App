@@ -13,6 +13,9 @@ const scheduleRoutes = require('./routes/schedules');
 const testRoutes = require('./routes/tests');
 const cronRoutes = require('./routes/cron');
 const adminRoutes = require('./routes/admin');
+const teamRoutes = require('./routes/team');
+const financeRoutes = require('./routes/finance');
+const Payment = require('./models/Payment');
 
 const app = express();
 
@@ -38,6 +41,8 @@ const mountRoutes = (prefix) => {
   app.use(`${prefix}/tests`, testRoutes);
   app.use(`${prefix}/cron`, cronRoutes);
   app.use(`${prefix}/admin`, adminRoutes);
+  app.use(`${prefix}/team`, teamRoutes);
+  app.use(`${prefix}/finance`, financeRoutes);
 };
 
 mountRoutes('/api');
@@ -63,6 +68,7 @@ const PORT = process.env.PORT || 5000;
 mongoose.connect(process.env.MONGODB_URI)
   .then(() => {
     console.log('Connected to MongoDB');
+    Payment.dropLegacyIndexes().catch((err) => console.error('Could not drop the old payments index:', err.message));
     if (process.env.NODE_ENV !== 'production') {
       app.listen(PORT, () => {
         console.log(`Server running on port ${PORT}`);
