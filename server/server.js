@@ -78,7 +78,8 @@ mongoose.connect(process.env.MONGODB_URI)
   .catch((err) => {
     console.error('MongoDB connection error:', err.message);
     // On Vercel, exiting kills the function and every request (CORS preflights included) fails with no headers
-    if (process.env.NODE_ENV !== 'production') process.exit(1);
+    // (Vercel sets VERCEL=1 at runtime; NODE_ENV is not reliably 'production' there)
+    if (!process.env.VERCEL) process.exit(1);
   });
 
 // Export the Express API for Vercel Serverless
